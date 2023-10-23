@@ -18,7 +18,7 @@
 //
 //	EpollInstance.interestMu
 //		FileDescription.epollMu
-//		  Locks acquired by FilesystemImpl/FileDescriptionImpl methods
+//		  Locks acquired by FilesystemImpl/FileDescriptionImpl methods (except IsDescendant)
 //		    VirtualFilesystem.mountMu
 //		      Dentry.mu
 //		        Locks acquired by FilesystemImpls between Prepare{Delete,Rename}Dentry and Commit{Delete,Rename*}Dentry
@@ -33,6 +33,11 @@
 // Locking Dentry.mu in multiple Dentries requires holding
 // VirtualFilesystem.mountMu. Locking EpollInstance.interestMu in multiple
 // EpollInstances requires holding epollCycleMu.
+//
+// FilesystemImpl locks are not held during calls to FilesystemImpl.IsDescendant
+// since it's called under mountMu. It's possible for concurrent mutation
+// to dentry ancestors during calls IsDescendant. Callers should take
+// appropriate caution when using this method.
 package vfs
 
 import (
@@ -658,6 +663,7 @@ func (vfs *VirtualFilesystem) StatFSAt(ctx context.Context, creds *auth.Credenti
 		vfs.maybeBlockOnMountPromise(ctx, rp)
 		statfs, err := rp.mount.fs.impl.StatFSAt(ctx, rp)
 		if err == nil {
+			statfs.Flags |= rp.mount.MountFlags()
 			rp.Release(ctx)
 			return statfs, nil
 		}
@@ -941,7 +947,9 @@ func (vfs *VirtualFilesystem) maybeBlockOnMountPromise(ctx context.Context, rp *
 		return
 	}
 
-	path, err := vfs.PathnameReachable(ctx, rp.root, vd)
+	root := RootFromContext(ctx)
+	defer root.DecRef(ctx)
+	path, err := vfs.PathnameReachable(ctx, root, vd)
 	if err != nil {
 		panic(fmt.Sprintf("could not reach %v from root", rp.Component()))
 	}

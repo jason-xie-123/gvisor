@@ -209,8 +209,8 @@ unit-tests: ## Local package unit tests in pkg/..., tools/.., etc.
 .PHONY: unit-tests
 
 # See unit-tests: this includes runsc/container.
-container-tests: $(RUNTIME_BIN) ## Run all tests in runsc/container/...
-	@$(call test,--test_tag_filters=-nogo --test_env=RUNTIME=$(RUNTIME_BIN) runsc/container/...)
+container-tests: ## Run all tests in runsc/container/...
+	@$(call test,--test_tag_filters=-nogo runsc/container/...)
 .PHONY: container-tests
 
 tests: ## Runs all unit tests and syscall tests.
@@ -261,6 +261,12 @@ arm-qemu-smoke-test: $(RUNTIME_BIN) load-arm-qemu
 
 simple-tests: unit-tests # Compatibility target.
 .PHONY: simple-tests
+
+gpu-tests: load-basic $(RUNTIME_BIN)
+	@$(call test,--test_env=RUNTIME=runc //test/gpu:gpu_test)
+	@$(call install_runtime,$(RUNTIME),--platform=systrap --nvproxy=true --nvproxy-docker=true)
+	@$(call test_runtime,$(RUNTIME),//test/gpu:gpu_test)
+.PHONE: gpu-tests
 
 portforward-tests: load-basic_redis load-basic_nginx $(RUNTIME_BIN)
 	@$(call install_runtime,$(RUNTIME),--network=sandbox)

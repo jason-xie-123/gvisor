@@ -20,7 +20,9 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"math/rand"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -43,7 +45,6 @@ import (
 	"gvisor.dev/gvisor/pkg/state/statefile"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/test/testutil"
-	"gvisor.dev/gvisor/runsc/boot"
 	"gvisor.dev/gvisor/runsc/cgroup"
 	"gvisor.dev/gvisor/runsc/config"
 	"gvisor.dev/gvisor/runsc/flag"
@@ -3037,93 +3038,143 @@ func TestExecFDExec(t *testing.T) {
 	}
 }
 
-// This test checks that a bind mount which is annotated to be fully owned by
-// the sandbox is overlaid using "self" overlay medium.
-func TestOverlayByMountAnnotation(t *testing.T) {
-	conf := testutil.TestConfig(t)
-	// Disable overlay settings.
-	conf.Overlay2.Set("none")
-
-	// We just sleep here because we want to test execution in an already
-	// running container.
-	spec := testutil.NewSpecWithArgs("bash", "-c", "sleep infinity")
-
-	// Set up a bind mount at "/submount".
-	subMount, err := ioutil.TempDir(testutil.TmpDir(), "submount")
+// TestMountEROFS checks that the checksums from the target directory in container
+// are identical with the ones from the source directory on host.
+func TestMountEROFS(t *testing.T) {
+	// Skip this test if mkfs.erofs is not available.
+	mkfs, err := exec.LookPath("mkfs.erofs")
 	if err != nil {
-		t.Fatalf("ioutil.TempDir failed: %v", err)
+		t.Skipf("mkfs.erofs is not available: %v", err)
 	}
-	defer os.RemoveAll(subMount)
-	spec.Mounts = append(spec.Mounts, specs.Mount{
-		Destination: subMount,
-		Source:      subMount,
-		Type:        "bind",
-	})
 
-	// Add mount annotation to self-overlay the submount.
-	volumeName := "mount1"
-	if spec.Annotations == nil {
-		spec.Annotations = make(map[string]string)
+	// Create a temporary directory to save the test files.
+	assetsDir, err := ioutil.TempDir(testutil.TmpDir(), "erofs-assets")
+	if err != nil {
+		t.Fatalf("ioutil.TempDir() failed: %v", err)
 	}
-	spec.Annotations[boot.MountPrefix+volumeName+".source"] = subMount
-	spec.Annotations[boot.MountPrefix+volumeName+".type"] = "bind"
-	spec.Annotations[boot.MountPrefix+volumeName+".share"] = "container"
-	spec.Annotations[boot.MountPrefix+volumeName+".lifecycle"] = "pod"
 
+	// Create a temporary directory with some random files in it, which will
+	// be used as the source directory to create the EROFS images.
+	sourceDir := filepath.Join(assetsDir, "source")
+	if err := os.Mkdir(sourceDir, 0755); err != nil {
+		t.Fatalf("os.Mkdir() failed: %v", err)
+	}
+	// Create some files with leading non-alphanumeric characters in name. It's helpful
+	// to verify the on-disk directory entries order.
+	for _, c := range []byte("!#$%&()*+,-:;<=>?@[]^_`{|}~") {
+		name := fmt.Sprintf("%s/%c_file", sourceDir, c)
+		// Create the file with random data.
+		if err := ioutil.WriteFile(name, []byte(fmt.Sprintf("%v", rand.Uint64())), 0644); err != nil {
+			t.Fatalf("error creating %q: %v", name, err)
+		}
+	}
+	testApp, err := testutil.FindFile("test/cmd/test_app/test_app")
+	if err != nil {
+		t.Fatalf("error finding test_app: %v", err)
+	}
+	// Source directory is a small directory. Let's create a big directory in it.
+	// So we can cover both cases.
+	cmd := fmt.Sprintf("%s fsTreeCreate --target-dir=%s --create-symlink --depth=1 --file-per-level=500 --file-size=5000", testApp, filepath.Join(sourceDir, "big-directory"))
+	if out, err := exec.Command("/bin/sh", "-c", cmd).CombinedOutput(); err != nil {
+		t.Fatalf("exec: sh -c %q, err: %v, out: %s", cmd, err, out)
+	}
+
+	// Create a test script which can be used to get the checksums
+	// from a specified directory.
+	scriptFile := filepath.Join(assetsDir, "test-script")
+	if err := os.WriteFile(scriptFile, []byte(`#!/bin/bash
+set -u -e -o pipefail
+dir=$1
+find $dir -printf "%P\n" | sort | md5sum
+find $dir -type l | sort | xargs -L 1 readlink | md5sum
+find $dir -type l -o -type f | sort | xargs cat | md5sum`), 0755); err != nil {
+		t.Fatalf("os.WriteFile() failed: %v", err)
+	}
+
+	// Get the checksums from the source directory on host.
+	var checksums string
+	if out, err := exec.Command(scriptFile, sourceDir).CombinedOutput(); err != nil {
+		t.Fatalf("exec: %s %s, err: %v, out: %s", scriptFile, sourceDir, err, out)
+	} else {
+		checksums = string(out)
+	}
+
+	images := []struct {
+		name    string
+		options string
+	}{
+		{
+			// Generate extended inodes. Inline regular files if possible.
+			name:    "image1",
+			options: "-E force-inode-extended",
+		},
+		{
+			// Generate extended inodes. Do not inline regular files.
+			name:    "image2",
+			options: "-E force-inode-extended -E noinline_data",
+		},
+		{
+			// Generate compact inodes. Inline regular files if possible.
+			name:    "image3",
+			options: "-E force-inode-compact",
+		},
+		{
+			// Generate compact inodes. Do not inline regular files.
+			name:    "image4",
+			options: "-E force-inode-compact -E noinline_data",
+		},
+	}
+
+	// Create the EROFS images.
+	for _, i := range images {
+		cmd := fmt.Sprintf("%s %s %s %s", mkfs, i.options, filepath.Join(assetsDir, i.name), sourceDir)
+		if out, err := exec.Command("/bin/sh", "-c", cmd).CombinedOutput(); err != nil {
+			t.Fatalf("exec: sh -c %q, err: %v, out: %s", cmd, err, out)
+		}
+	}
+
+	spec, _ := sleepSpecConf(t)
+	conf := testutil.TestConfig(t)
 	_, bundleDir, cleanup, err := testutil.SetupContainer(spec, conf)
 	if err != nil {
 		t.Fatalf("error setting up container: %v", err)
 	}
 	defer cleanup()
 
+	// Create and start the container.
 	args := Args{
 		ID:        testutil.RandomContainerID(),
 		Spec:      spec,
 		BundleDir: bundleDir,
 	}
-
-	cont, err := New(conf, args)
+	c, err := New(conf, args)
 	if err != nil {
-		t.Fatalf("Creating container: %v", err)
+		t.Fatalf("error creating container: %v", err)
 	}
-	destroyed := false
-	destroy := func() {
-		if destroyed {
-			return
+	defer c.Destroy()
+	if err := c.Start(conf); err != nil {
+		t.Fatalf("error starting container: %v", err)
+	}
+
+	targetDir := "/mnt"
+	for _, i := range images {
+		// Mount the EROFS image in container.
+		imageFile := filepath.Join(assetsDir, i.name)
+		if err := c.Sandbox.Mount(c.ID, "erofs", imageFile, targetDir); err != nil {
+			t.Fatalf("error mounting EROFS image %q to %q, err: %v", imageFile, targetDir, err)
 		}
-		destroyed = true
-		cont.Destroy()
-	}
-	defer destroy()
 
-	if err := cont.Start(conf); err != nil {
-		t.Fatalf("starting container: %v", err)
-	}
+		// Get the checksums from the target directory in container, and check if they are
+		// identical with the ones got from the source directory on host.
+		if out, err := executeCombinedOutput(conf, c, nil, scriptFile, targetDir); err != nil {
+			t.Fatalf("exec: %s %s, err: %v, out: %s", scriptFile, targetDir, err, out)
+		} else if checksums != string(out) {
+			t.Errorf("checksums do not match, got: %s from %s, expected: %s", out, imageFile, checksums)
+		}
 
-	// Create a file in submount with a few bytes.
-	testFilePath := path.Join(subMount, "testfile")
-	if ws, err := execute(conf, cont, "/bin/sh", "-c", "echo hello > "+testFilePath); err != nil || ws != 0 {
-		t.Fatalf("exec command failed to write a file in submount, ws: %v, err: %v", ws, err)
-	}
-
-	// Check that the filestore file is created and is not empty.
-	filestoreFile := boot.SelfOverlayFilestorePath(subMount, cont.Sandbox.ID)
-	var stat unix.Stat_t
-	if err := unix.Stat(filestoreFile, &stat); err != nil {
-		t.Fatalf("unix.Stat(%q) failed for submount filestore: %v", filestoreFile, err)
-	}
-	if stat.Blocks == 0 {
-		t.Errorf("submount filestore file %q is empty", filestoreFile)
-	}
-
-	// Check that the file is not created on the host.
-	if err := unix.Stat(path.Join(subMount, testFilePath), &stat); err == nil {
-		t.Errorf("%q file created on the host in spite of overlay", testFilePath)
-	}
-
-	// Destroying the container should delete the filestore file.
-	destroy()
-	if err := unix.Stat(filestoreFile, &stat); err == nil {
-		t.Fatalf("overlay filestore at %q was not deleted after container.Destroy()", filestoreFile)
+		// Unmount the EROFS image in container.
+		if out, err := executeCombinedOutput(conf, c, nil, "/bin/umount", targetDir); err != nil {
+			t.Fatalf("exec: umount %q, err: %v, out: %s", targetDir, err, out)
+		}
 	}
 }

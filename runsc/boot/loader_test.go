@@ -140,7 +140,7 @@ func createLoader(conf *config.Config, spec *specs.Spec) (*Loader, func(), error
 		ControllerFD:    fd,
 		GoferFDs:        []int{sandEnd},
 		StdioFDs:        stdio,
-		OverlayMediums:  []OverlayMedium{NoOverlay},
+		GoferMountConfs: []GoferMountConf{VanillaGofer},
 		PodInitConfigFD: -1,
 		ExecFD:          -1,
 	}
@@ -475,14 +475,10 @@ func TestCreateMountNamespace(t *testing.T) {
 			defer l.Destroy()
 			defer loaderCleanup()
 
-			if err := l.processHints(l.root.conf, l.root.procArgs.Credentials); err != nil {
-				t.Fatalf("failed process hints: %v", err)
-			}
 			mntr := newContainerMounter(&l.root, l.k, l.mountHints, l.sharedMounts, "", l.sandboxID)
-
 			ctx := l.k.SupervisorContext()
 			creds := auth.NewRootCredentials(l.root.procArgs.Credentials.UserNamespace)
-			mns, err := mntr.mountAll(ctx, creds, l.root.conf, &l.root.procArgs)
+			mns, err := mntr.mountAll(ctx, creds, l.root.spec, l.root.conf, &l.root.procArgs)
 			if err != nil {
 				t.Fatalf("mountAll: %v", err)
 			}

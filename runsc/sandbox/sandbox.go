@@ -44,6 +44,7 @@ import (
 	metricpb "gvisor.dev/gvisor/pkg/metric/metric_go_proto"
 	"gvisor.dev/gvisor/pkg/prometheus"
 	"gvisor.dev/gvisor/pkg/sentry/control"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/erofs"
 	"gvisor.dev/gvisor/pkg/sentry/platform"
 	"gvisor.dev/gvisor/pkg/sentry/seccheck"
 	"gvisor.dev/gvisor/pkg/state/statefile"
@@ -227,14 +228,14 @@ type Args struct {
 	// appear in the spec.
 	IOFiles []*os.File
 
-	// OverlayFilestoreFiles are the regular files that will back the tmpfs upper
-	// mount in the overlay mounts.
-	OverlayFilestoreFiles []*os.File
+	// GoferFilestoreFiles are the regular files that will back the overlayfs or
+	// tmpfs mount if a gofer mount is to be overlaid.
+	GoferFilestoreFiles []*os.File
 
-	// OverlayMediums contains information about how the gofer mounts have been
-	// overlaid. The first entry is for rootfs and the following entries are for
-	// bind mounts in Spec.Mounts (in the same order).
-	OverlayMediums boot.OverlayMediumFlags
+	// GoferMountConfs contains information about how the gofer mounts have been
+	// configured. The first entry is for rootfs and the following entries are
+	// for bind mounts in Spec.Mounts (in the same order).
+	GoferMountConfs boot.GoferMountConfFlags
 
 	// MountHints provides extra information about containers mounts that apply
 	// to the entire pod.
@@ -402,7 +403,7 @@ func (s *Sandbox) StartRoot(conf *config.Config) error {
 }
 
 // StartSubcontainer starts running a sub-container inside the sandbox.
-func (s *Sandbox) StartSubcontainer(spec *specs.Spec, conf *config.Config, cid string, stdios, goferFiles, overlayFilestoreFiles []*os.File, overlayMediums []boot.OverlayMedium) error {
+func (s *Sandbox) StartSubcontainer(spec *specs.Spec, conf *config.Config, cid string, stdios, goferFiles, goferFilestores []*os.File, goferConfs []boot.GoferMountConf) error {
 	log.Debugf("Start sub-container %q in sandbox %q, PID: %d", cid, s.ID, s.Pid.load())
 
 	if err := s.configureStdios(conf, stdios); err != nil {
@@ -412,22 +413,21 @@ func (s *Sandbox) StartSubcontainer(spec *specs.Spec, conf *config.Config, cid s
 
 	// The payload contains (in this specific order):
 	// * stdin/stdout/stderr (optional: only present when not using TTY)
-	// * The subcontainer's overlay filestore files (optional: only present when
-	//   host file backed overlay is configured)
+	// * The subcontainer's gofer filestore files (optional)
 	// * Gofer files.
 	payload := urpc.FilePayload{}
 	payload.Files = append(payload.Files, stdios...)
-	payload.Files = append(payload.Files, overlayFilestoreFiles...)
+	payload.Files = append(payload.Files, goferFilestores...)
 	payload.Files = append(payload.Files, goferFiles...)
 
 	// Start running the container.
 	args := boot.StartArgs{
-		Spec:                   spec,
-		Conf:                   conf,
-		CID:                    cid,
-		NumOverlayFilestoreFDs: len(overlayFilestoreFiles),
-		OverlayMediums:         overlayMediums,
-		FilePayload:            payload,
+		Spec:                 spec,
+		Conf:                 conf,
+		CID:                  cid,
+		NumGoferFilestoreFDs: len(goferFilestores),
+		GoferMountConfs:      goferConfs,
+		FilePayload:          payload,
 	}
 	if err := s.call(boot.ContMgrStartSubcontainer, &args, nil); err != nil {
 		return fmt.Errorf("starting sub-container %v: %w", spec.Process.Args, err)
@@ -733,7 +733,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 
 	// If there is a gofer, sends all socket ends to the sandbox.
 	donations.DonateAndClose("io-fds", args.IOFiles...)
-	donations.DonateAndClose("overlay-filestore-fds", args.OverlayFilestoreFiles...)
+	donations.DonateAndClose("gofer-filestore-fds", args.GoferFilestoreFiles...)
 	donations.DonateAndClose("mounts-fd", args.MountsFile)
 	donations.Donate("start-sync-fd", startSyncFile)
 	if err := donations.OpenAndDonate("user-log-fd", args.UserLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND); err != nil {
@@ -761,8 +761,8 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		cmd.Args = append(cmd.Args, "--nvidia-dev-minors="+args.NvidiaDevMinors.String())
 	}
 
-	// Pass overlay mediums.
-	cmd.Args = append(cmd.Args, "--overlay-mediums="+args.OverlayMediums.String())
+	// Pass gofer mount configs.
+	cmd.Args = append(cmd.Args, "--gofer-mount-confs="+args.GoferMountConfs.String())
 
 	// Create a socket for the control server and donate it to the sandbox.
 	controlSocketPath, sockFD, err := createControlSocket(conf.RootDir, s.ID)
@@ -1668,4 +1668,29 @@ func SetUserMappings(spec *specs.Spec, pid int) error {
 		return fmt.Errorf("newgidmap failed: %w", err)
 	}
 	return nil
+}
+
+// Mount mounts a filesystem in a container.
+func (s *Sandbox) Mount(cid, fstype, src, dest string) error {
+	var files []*os.File
+	switch fstype {
+	case erofs.Name:
+		if imageFile, err := os.Open(src); err != nil {
+			return fmt.Errorf("opening %s: %v", src, err)
+		} else {
+			files = append(files, imageFile)
+		}
+
+	default:
+		return fmt.Errorf("unsupported filesystem type: %v", fstype)
+	}
+
+	args := boot.MountArgs{
+		ContainerID: cid,
+		Source:      src,
+		Destination: dest,
+		FsType:      fstype,
+		FilePayload: urpc.FilePayload{Files: files},
+	}
+	return s.call(boot.ContMgrMount, &args, nil)
 }

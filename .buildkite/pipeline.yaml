@@ -168,6 +168,15 @@ steps:
       - git checkout go && git clean -xf .
       - GOOS=linux GOARCH=mips go build $$PACKAGES
 
+  # GPU workflow.
+  - <<: *common
+    <<: *source_test
+    label: "GPU tests"
+    commands:
+      - make sudo TARGETS=//tools/gpu:main ARGS="install --latest" || cat /var/log/nvidia-installer.log
+      - make gpu-tests
+    agents:
+      queue: gpu
   # Release workflow.
   - <<: *common
     <<: *source_test

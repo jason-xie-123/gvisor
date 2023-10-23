@@ -930,7 +930,7 @@ cc_binary(
     testonly = 1,
     srcs = select_arch(
         amd64 = ["fpsig_mut_amd64.cc"],
-        arm64 = [],
+        default = [],
     ),
     linkstatic = 1,
     deps = [
@@ -1410,6 +1410,7 @@ cc_binary(
         "@com_google_absl//absl/time",
         gtest,
         "//test/util:eventfd_util",
+        "//test/util:logging",
         "//test/util:mount_util",
         "//test/util:multiprocess_util",
         "//test/util:posix_error",
@@ -1418,6 +1419,8 @@ cc_binary(
         "//test/util:test_main",
         "//test/util:test_util",
         "//test/util:thread_util",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:str_format",
     ],
 )
 
@@ -1723,7 +1726,7 @@ cc_binary(
     testonly = 1,
     srcs = select_arch(
         amd64 = ["arch_prctl.cc"],
-        arm64 = [],
+        default = [],
     ),
     linkstatic = 1,
     deps = [
@@ -2422,6 +2425,7 @@ cc_binary(
     srcs = select_arch(
         amd64 = ["sigreturn_amd64.cc"],
         arm64 = ["sigreturn_arm64.cc"],
+        riscv64 = [],
     ),
     linkstatic = 1,
     deps = [
@@ -2431,8 +2435,8 @@ cc_binary(
         "//test/util:test_util",
         "//test/util:timer_util",
     ] + select_arch(
-        amd64 = [],
         arm64 = ["//test/util:test_main"],
+        default = [],
     ),
 )
 
@@ -3669,6 +3673,9 @@ cc_binary(
         ":unix_domain_socket_test_util",
         "//test/util:socket_util",
         gtest,
+        "//test/util:capability_util",
+        "//test/util:cleanup",
+        "//test/util:file_descriptor",
         "//test/util:test_main",
         "//test/util:test_util",
     ],
@@ -3868,7 +3875,9 @@ cc_binary(
         "//test/util:file_descriptor",
         "@com_google_absl//absl/strings",
         gtest,
+        "//test/util:capability_util",
         "//test/util:fs_util",
+        "//test/util:mount_util",
         "//test/util:posix_error",
         "//test/util:temp_path",
         "//test/util:test_main",
@@ -4631,18 +4640,17 @@ cc_binary(
 )
 
 cc_binary(
-    name = "process_vm_read_write",
+    name = "process_vm_read_write_test",
     testonly = 1,
     srcs = ["process_vm_read_write.cc"],
     linkstatic = 1,
     deps = [
         gtest,
-        "//test/util:capability_util",
         "//test/util:logging",
-        "//test/util:multiprocess_util",
         "//test/util:posix_error",
         "//test/util:test_main",
         "//test/util:test_util",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/strings",
     ],
 )
