@@ -340,10 +340,18 @@ func (b IPv4) SourceAddress() tcpip.Address {
 	return tcpip.AddrFrom4([4]byte(b[srcAddr : srcAddr+IPv4AddressSize]))
 }
 
+func (b IPv4) SourceAddressAsSlice4() []byte {
+	return b[srcAddr : srcAddr+IPv4AddressSize]
+}
+
 // DestinationAddress returns the "destination address" field of the IPv4
 // header.
 func (b IPv4) DestinationAddress() tcpip.Address {
 	return tcpip.AddrFrom4([4]byte(b[dstAddr : dstAddr+IPv4AddressSize]))
+}
+
+func (b IPv4) DestinationAddressAsSlice4() []byte {
+	return b[dstAddr : dstAddr+IPv4AddressSize]
 }
 
 // SetSourceAddressWithChecksumUpdate implements ChecksummableNetwork.
