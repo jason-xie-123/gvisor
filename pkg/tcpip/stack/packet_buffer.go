@@ -740,6 +740,10 @@ func (r Range) iterate(fn func(*buffer.View)) {
 	r.pk.buf.SubApply(r.offset, r.length, fn)
 }
 
+func (r Range) IterateBytes(fn func(*[]byte)) {
+	r.pk.buf.SubApplyBytes(r.offset, r.length, fn)
+}
+
 // PayloadSince returns a caller-owned view containing the payload starting from
 // and including a particular header.
 func PayloadSince(h PacketHeader) *buffer.View {
