@@ -479,7 +479,7 @@ func (b *Buffer) SubApplyBytes(offset, length int, fn func([]byte)) {
 			endPoint = v.Size()
 		}
 
-		data := v.AsSlice()[startPoint:(endPoint - startPoint)]
+		data := v.AsSlice()[startPoint:endPoint]
 
 		fn(data)
 
