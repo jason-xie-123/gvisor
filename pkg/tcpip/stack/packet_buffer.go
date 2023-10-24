@@ -740,7 +740,7 @@ func (r Range) iterate(fn func(*buffer.View)) {
 	r.pk.buf.SubApply(r.offset, r.length, fn)
 }
 
-func (r Range) IterateBytes(fn func(*[]byte)) {
+func (r Range) IterateBytes(fn func([]byte)) {
 	r.pk.buf.SubApplyBytes(r.offset, r.length, fn)
 }
 

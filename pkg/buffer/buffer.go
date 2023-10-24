@@ -455,7 +455,7 @@ func (b *Buffer) SubApply(offset, length int, fn func(*View)) {
 	}
 }
 
-func (b *Buffer) SubApplyBytes(offset, length int, fn func(*[]byte)) {
+func (b *Buffer) SubApplyBytes(offset, length int, fn func([]byte)) {
 	for v := b.data.Front(); length > 0 && v != nil; v = v.Next() {
 		if length <= 0 {
 			break
@@ -481,7 +481,7 @@ func (b *Buffer) SubApplyBytes(offset, length int, fn func(*[]byte)) {
 
 		data := v.AsSlice()[startPoint:(endPoint - startPoint)]
 
-		fn(&data)
+		fn(data)
 
 		length -= len(data)
 	}
