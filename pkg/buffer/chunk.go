@@ -49,6 +49,7 @@ var (
 	debugSupport     bool = false
 	debugMutex       sync.Mutex
 	debugUsingMap    map[int]int = make(map[int]int)
+	debugUsingMaxMap map[int]int = make(map[int]int)
 	debugAllocMap    map[int]int = make(map[int]int)
 	debugRealSizeMap map[int]int = make(map[int]int)
 )
@@ -61,6 +62,7 @@ func InternalStartDebug() {
 		for range ticker.C {
 			debugMutex.Lock()
 			fmt.Printf("bufferv2 debugUsingMap: %+v\n", debugUsingMap)
+			fmt.Printf("bufferv2 debugUsingMaxMap: %+v\n", debugUsingMaxMap)
 			fmt.Printf("bufferv2 debugAllocMap: %+v\n", debugAllocMap)
 			fmt.Printf("bufferv2 debugRealSizeMap: %+v\n", debugRealSizeMap)
 			debugMutex.Unlock()
@@ -117,6 +119,14 @@ func newChunk(size int) *chunk {
 				debugUsingMap[size] = 1
 			}
 
+			if val, ok := debugUsingMaxMap[size]; ok {
+				if val < debugUsingMap[size] {
+					debugUsingMaxMap[size] = debugUsingMap[size]
+				}
+			} else {
+				debugUsingMaxMap[size] = debugUsingMap[size]
+			}
+
 			if val, ok := debugAllocMap[size]; ok {
 				debugAllocMap[size] = val + 1
 			} else {
@@ -140,6 +150,14 @@ func newChunk(size int) *chunk {
 				debugUsingMap[allcoSize] = val + 1
 			} else {
 				debugUsingMap[allcoSize] = 1
+			}
+
+			if val, ok := debugUsingMaxMap[allcoSize]; ok {
+				if val < debugUsingMap[allcoSize] {
+					debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
+				}
+			} else {
+				debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
 			}
 
 			if val, ok := debugAllocMap[allcoSize]; ok {
