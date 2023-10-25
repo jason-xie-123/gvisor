@@ -314,6 +314,29 @@ func (v *View) ReadFromForFalcon(r io.Reader, maxSize int) (n int, err error) {
 	return n, e
 }
 
+func (v *View) ReadFromForUnknownSource(maxSize int, readFun func([]byte) (int, error)) (n int, err error) {
+	if v == nil {
+		panic("cannot write to a nil view")
+	}
+
+	if v.sharesChunk() {
+		defer v.chunk.DecRef()
+		v.chunk = v.chunk.Clone()
+	}
+
+	source := v.availableSlice()
+	if maxSize < len(source) {
+		source = source[:maxSize]
+	}
+
+	m, e := readFun(source)
+
+	v.write += m
+	n += m
+
+	return n, e
+}
+
 // WriteAt writes data to the views's chunk starting at start. If the
 // view's chunk has a reference count greater than 1, the chunk is copied first
 // and then written to.
