@@ -16,8 +16,11 @@ package buffer
 
 import (
 	"fmt"
+	"sort"
+	"sync/atomic"
 	"time"
 
+	sonicjson "github.com/bytedance/sonic"
 	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/sync"
 )
@@ -46,13 +49,19 @@ const (
 var chunkPools [numPools]sync.Pool
 
 var (
-	debugSupport     bool = false
+	usingBytes       int64 = 0
+	debugSupport     bool  = false
 	debugMutex       sync.Mutex
 	debugUsingMap    map[int]int = make(map[int]int)
 	debugUsingMaxMap map[int]int = make(map[int]int)
 	debugAllocMap    map[int]int = make(map[int]int)
 	debugRealSizeMap map[int]int = make(map[int]int)
 )
+
+type realSizeNode struct {
+	RealSize int `json:"realSize"`
+	Counter  int `json:"counter"`
+}
 
 func InternalStartDebug() {
 	debugSupport = true
@@ -64,7 +73,34 @@ func InternalStartDebug() {
 			fmt.Printf("bufferv2 debugUsingMap: %+v\n", debugUsingMap)
 			fmt.Printf("bufferv2 debugUsingMaxMap: %+v\n", debugUsingMaxMap)
 			fmt.Printf("bufferv2 debugAllocMap: %+v\n", debugAllocMap)
-			fmt.Printf("bufferv2 debugRealSizeMap: %+v\n", debugRealSizeMap)
+
+			realSizeMapList := []*realSizeNode{}
+			for key, value := range debugRealSizeMap {
+				if value != 0 {
+					realSizeMapList = append(realSizeMapList, &realSizeNode{
+						key, value,
+					})
+				} else {
+					fmt.Println("find zero real size trunk!!!!!!!!!!!!!")
+					realSizeMapList = append(realSizeMapList, &realSizeNode{
+						key, value,
+					})
+				}
+			}
+			sort.Slice(realSizeMapList, func(i, j int) bool {
+				return realSizeMapList[i].Counter > realSizeMapList[j].Counter
+			})
+
+			if len(realSizeMapList) > 20 {
+				realSizeMapList = realSizeMapList[:20]
+			}
+
+			data, _ := sonicjson.Marshal(realSizeMapList)
+			fmt.Printf("bufferv2 debugRealSizeMap: %s\n", data)
+
+			currentUsingBytes := atomic.LoadInt64(&usingBytes)
+			fmt.Printf("bufferv2 currentUsingBytes: %d\n", currentUsingBytes)
+
 			debugMutex.Unlock()
 		}
 	}()
@@ -73,6 +109,7 @@ func InternalStartDebug() {
 func init() {
 	for i := 0; i < numPools; i++ {
 		chunkSize := baseChunkSize * (1 << i)
+		fmt.Printf("xxxxxxxxxxxxxxxxxxxxxxxx chunkSize: %d\n", chunkSize)
 		chunkPools[i].New = func() any {
 			return &chunk{
 				data: make([]byte, chunkSize),
@@ -105,11 +142,17 @@ type chunk struct {
 }
 
 func newChunk(size int) *chunk {
+	if size == 0 {
+		fmt.Println("xxxxxxx")
+	}
+
 	var c *chunk
 	if size > MaxChunkSize {
 		c = &chunk{
 			data: make([]byte, size),
 		}
+
+		atomic.AddInt64(&usingBytes, int64(size))
 
 		if debugSupport {
 			debugMutex.Lock()
@@ -143,6 +186,8 @@ func newChunk(size int) *chunk {
 		}
 	} else {
 		pool, allcoSize := getChunkPool(size)
+
+		atomic.AddInt64(&usingBytes, int64(allcoSize))
 
 		if debugSupport {
 			debugMutex.Lock()
@@ -185,6 +230,8 @@ func newChunk(size int) *chunk {
 
 func (c *chunk) destroy() {
 	if len(c.data) > MaxChunkSize {
+		atomic.AddInt64(&usingBytes, -int64(len(c.data)))
+
 		if debugSupport {
 			debugMutex.Lock()
 			if val, ok := debugUsingMap[len(c.data)]; ok {
@@ -199,6 +246,8 @@ func (c *chunk) destroy() {
 		return
 	}
 	pool, allcoSize := getChunkPool(len(c.data))
+
+	atomic.AddInt64(&usingBytes, -int64(allcoSize))
 
 	if debugSupport {
 		debugMutex.Lock()
