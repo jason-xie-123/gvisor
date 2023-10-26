@@ -21,7 +21,6 @@ import (
 	"time"
 
 	sonicjson "github.com/bytedance/sonic"
-	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/sync"
 )
 
@@ -29,19 +28,20 @@ const (
 	// This is log2(baseChunkSize). This number is used to calculate which pool
 	// to use for a payload size by right shifting the payload size by this
 	// number and passing the result to MostSignificantOne64.
-	baseChunkSizeLog2 = 6
+	// baseChunkSizeLog2 = 6
 
 	// This is the size of the buffers in the first pool. Each subsquent pool
 	// creates payloads 2^(pool index) times larger than the first pool's
 	// payloads.
-	baseChunkSize = 1 << baseChunkSizeLog2 // 64
+	// baseChunkSize = 1 << baseChunkSizeLog2 // 64
 
 	// MaxChunkSize is largest payload size that we pool. Payloads larger than
 	// this will be allocated from the heap and garbage collected as normal.
-	MaxChunkSize = baseChunkSize << (numPools - 1) // 64k
+	// MaxChunkSize = baseChunkSize << (numPools - 1) // 64k
+	MaxChunkSize = 65536
 
 	// The number of chunk pools we have for use.
-	numPools = 11
+	numPools = 12
 )
 
 // chunkPools is a collection of pools for payloads of different sizes. The
@@ -49,13 +49,16 @@ const (
 var chunkPools [numPools]sync.Pool
 
 var (
-	usingBytes       int64 = 0
-	debugSupport     bool  = false
-	debugMutex       sync.Mutex
-	debugUsingMap    map[int]int = make(map[int]int)
-	debugUsingMaxMap map[int]int = make(map[int]int)
-	debugAllocMap    map[int]int = make(map[int]int)
-	debugRealSizeMap map[int]int = make(map[int]int)
+	poolSizes = [numPools]int{64, 128, 256, 512, 1024, 1500, 2048, 4096, 8192, 16384, 32768, 65536}
+
+	usingBytes         int64 = 0
+	maxUsingFuzzyBytes int64 = 0
+	debugSupport       bool  = false
+	debugMutex         sync.Mutex
+	debugUsingMap      map[int]int = make(map[int]int)
+	debugUsingMaxMap   map[int]int = make(map[int]int)
+	debugAllocMap      map[int]int = make(map[int]int)
+	debugRealSizeMap   map[int]int = make(map[int]int)
 )
 
 type realSizeNode struct {
@@ -101,6 +104,9 @@ func InternalStartDebug() {
 			currentUsingBytes := atomic.LoadInt64(&usingBytes)
 			fmt.Printf("bufferv2 currentUsingBytes: %d\n", currentUsingBytes)
 
+			currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
+			fmt.Printf("bufferv2 currentMaxUsingFuzzyBytes: %d\n", currentMaxUsingFuzzyBytes)
+
 			debugMutex.Unlock()
 		}
 	}()
@@ -108,8 +114,7 @@ func InternalStartDebug() {
 
 func init() {
 	for i := 0; i < numPools; i++ {
-		chunkSize := baseChunkSize * (1 << i)
-		fmt.Printf("xxxxxxxxxxxxxxxxxxxxxxxx chunkSize: %d\n", chunkSize)
+		chunkSize := poolSizes[i]
 		chunkPools[i].New = func() any {
 			return &chunk{
 				data: make([]byte, chunkSize),
@@ -118,19 +123,25 @@ func init() {
 	}
 }
 
+func GetChunkPoolUsingBytes() int64 {
+	return atomic.LoadInt64(&usingBytes)
+}
+
 // Precondition: 0 <= size <= maxChunkSize
 func getChunkPool(size int) (*sync.Pool, int) {
-	idx := 0
-	if size > baseChunkSize {
-		idx = bits.MostSignificantOne64(uint64(size) >> baseChunkSizeLog2)
-		if size > 1<<(idx+baseChunkSizeLog2) {
-			idx++
+	idx := -1
+	for index, poolSize := range poolSizes {
+		if size <= poolSize {
+			idx = index
+			break
 		}
 	}
-	if idx >= numPools {
+
+	if idx == -1 {
 		panic(fmt.Sprintf("pool for chunk size %d does not exist", size))
 	}
-	return &chunkPools[idx], 1 << (idx + baseChunkSizeLog2)
+
+	return &chunkPools[idx], poolSizes[idx]
 }
 
 // Chunk represents a slice of pooled memory.
@@ -153,6 +164,12 @@ func newChunk(size int) *chunk {
 		}
 
 		atomic.AddInt64(&usingBytes, int64(size))
+
+		currentUsingBytes := atomic.LoadInt64(&usingBytes)
+		currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
+		if currentUsingBytes > currentMaxUsingFuzzyBytes {
+			atomic.StoreInt64(&maxUsingFuzzyBytes, currentUsingBytes)
+		}
 
 		if debugSupport {
 			debugMutex.Lock()
@@ -185,30 +202,36 @@ func newChunk(size int) *chunk {
 			debugMutex.Unlock()
 		}
 	} else {
-		pool, allcoSize := getChunkPool(size)
+		pool, allocSize := getChunkPool(size)
 
-		atomic.AddInt64(&usingBytes, int64(allcoSize))
+		atomic.AddInt64(&usingBytes, int64(allocSize))
+
+		currentUsingBytes := atomic.LoadInt64(&usingBytes)
+		currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
+		if currentUsingBytes > currentMaxUsingFuzzyBytes {
+			atomic.StoreInt64(&maxUsingFuzzyBytes, currentUsingBytes)
+		}
 
 		if debugSupport {
 			debugMutex.Lock()
-			if val, ok := debugUsingMap[allcoSize]; ok {
-				debugUsingMap[allcoSize] = val + 1
+			if val, ok := debugUsingMap[allocSize]; ok {
+				debugUsingMap[allocSize] = val + 1
 			} else {
-				debugUsingMap[allcoSize] = 1
+				debugUsingMap[allocSize] = 1
 			}
 
-			if val, ok := debugUsingMaxMap[allcoSize]; ok {
-				if val < debugUsingMap[allcoSize] {
-					debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
+			if val, ok := debugUsingMaxMap[allocSize]; ok {
+				if val < debugUsingMap[allocSize] {
+					debugUsingMaxMap[allocSize] = debugUsingMap[allocSize]
 				}
 			} else {
-				debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
+				debugUsingMaxMap[allocSize] = debugUsingMap[allocSize]
 			}
 
-			if val, ok := debugAllocMap[allcoSize]; ok {
-				debugAllocMap[allcoSize] = val + 1
+			if val, ok := debugAllocMap[allocSize]; ok {
+				debugAllocMap[allocSize] = val + 1
 			} else {
-				debugAllocMap[allcoSize] = 1
+				debugAllocMap[allocSize] = 1
 			}
 
 			if val, ok := debugRealSizeMap[size]; ok {
