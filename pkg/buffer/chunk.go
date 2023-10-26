@@ -91,7 +91,7 @@ func InternalStartDebug() {
 				}
 			}
 			sort.Slice(realSizeMapList, func(i, j int) bool {
-				return realSizeMapList[i].Counter > realSizeMapList[j].Counter
+				return realSizeMapList[i].Counter*realSizeMapList[i].RealSize > realSizeMapList[j].Counter*realSizeMapList[j].RealSize
 			})
 
 			if len(realSizeMapList) > 20 {
