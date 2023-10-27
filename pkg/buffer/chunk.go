@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sonicjson "github.com/bytedance/sonic"
+	json "github.com/bytedance/sonic"
 	"gvisor.dev/gvisor/pkg/sync"
 )
 
@@ -98,7 +98,7 @@ func InternalStartDebug() {
 				realSizeMapList = realSizeMapList[:20]
 			}
 
-			data, _ := sonicjson.Marshal(realSizeMapList)
+			data, _ := json.Marshal(realSizeMapList)
 			fmt.Printf("bufferv2 debugRealSizeMap: %s\n", data)
 
 			currentUsingBytes := atomic.LoadInt64(&usingBytes)
