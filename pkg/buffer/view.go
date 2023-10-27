@@ -265,6 +265,22 @@ func (v *View) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+func (v *View) WriteByte(p byte) error {
+	if v == nil {
+		panic("cannot write to a nil view")
+	}
+	if v.AvailableSize() < 1 {
+		v.growCap(1 - v.AvailableSize())
+	} else if v.sharesChunk() {
+		defer v.chunk.DecRef()
+		v.chunk = v.chunk.Clone()
+	}
+	v.chunk.data[v.write] = p
+	v.write += 1
+
+	return nil
+}
+
 // ReadFrom reads data from r until EOF and appends it to the buffer, growing
 // the buffer as needed. The return value n is the number of bytes read. Any
 // error except io.EOF encountered during the read is also returned.
