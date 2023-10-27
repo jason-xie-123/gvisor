@@ -153,10 +153,6 @@ type chunk struct {
 }
 
 func newChunk(size int) *chunk {
-	if size == 0 {
-		fmt.Println("xxxxxxx")
-	}
-
 	var c *chunk
 	if size > MaxChunkSize {
 		c = &chunk{
