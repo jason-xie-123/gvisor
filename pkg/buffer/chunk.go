@@ -264,16 +264,16 @@ func (c *chunk) destroy() {
 		c.data = nil
 		return
 	}
-	pool, allcoSize := getChunkPool(len(c.data))
+	pool, allocSize := getChunkPool(len(c.data))
 
-	atomic.AddInt64(&usingBytes, -int64(allcoSize))
+	atomic.AddInt64(&usingBytes, -int64(allocSize))
 
 	if debugSupport {
 		debugMutex.Lock()
-		if val, ok := debugUsingMap[allcoSize]; ok {
-			debugUsingMap[allcoSize] = val - 1
+		if val, ok := debugUsingMap[allocSize]; ok {
+			debugUsingMap[allocSize] = val - 1
 		} else {
-			debugUsingMap[allcoSize] = 0
+			debugUsingMap[allocSize] = 0
 		}
 		debugMutex.Unlock()
 	}
