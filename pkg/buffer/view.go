@@ -52,6 +52,8 @@ type View struct {
 	read      int
 	write     int
 	chunk     *chunk
+
+	leakyBufHandler *LeakyBuf
 }
 
 // NewView creates a new view with capacity at least as big as cap. It is
@@ -104,6 +106,11 @@ func (v *View) Release() {
 	if v == nil {
 		panic("cannot release a nil view")
 	}
+
+	if v.leakyBufHandler != nil {
+		v.leakyBufHandler.put(v)
+	}
+
 	v.chunk.DecRef()
 	*v = View{}
 	viewPool.Put(v)
