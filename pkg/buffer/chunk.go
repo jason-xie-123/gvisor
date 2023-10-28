@@ -16,11 +16,8 @@ package buffer
 
 import (
 	"fmt"
-	"sort"
 	"sync/atomic"
-	"time"
 
-	json "github.com/bytedance/sonic"
 	"gvisor.dev/gvisor/pkg/sync"
 )
 
@@ -53,7 +50,6 @@ var (
 
 	usingBytes         int64 = 0
 	maxUsingFuzzyBytes int64 = 0
-	debugSupport       bool  = false
 	debugMutex         sync.Mutex
 	debugUsingMap      map[int]int = make(map[int]int)
 	debugUsingMaxMap   map[int]int = make(map[int]int)
@@ -64,52 +60,6 @@ var (
 type realSizeNode struct {
 	RealSize int `json:"realSize"`
 	Counter  int `json:"counter"`
-}
-
-func InternalStartDebugChunk() {
-	debugSupport = true
-
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range ticker.C {
-			debugMutex.Lock()
-			fmt.Printf("bufferv2 debugUsingMap: %+v\n", debugUsingMap)
-			fmt.Printf("bufferv2 debugUsingMaxMap: %+v\n", debugUsingMaxMap)
-			fmt.Printf("bufferv2 debugAllocMap: %+v\n", debugAllocMap)
-
-			realSizeMapList := []*realSizeNode{}
-			for key, value := range debugRealSizeMap {
-				if value != 0 {
-					realSizeMapList = append(realSizeMapList, &realSizeNode{
-						key, value,
-					})
-				} else {
-					fmt.Println("find zero real size trunk!!!!!!!!!!!!!")
-					realSizeMapList = append(realSizeMapList, &realSizeNode{
-						key, value,
-					})
-				}
-			}
-			sort.Slice(realSizeMapList, func(i, j int) bool {
-				return realSizeMapList[i].Counter*realSizeMapList[i].RealSize > realSizeMapList[j].Counter*realSizeMapList[j].RealSize
-			})
-
-			if len(realSizeMapList) > 20 {
-				realSizeMapList = realSizeMapList[:20]
-			}
-
-			data, _ := json.Marshal(realSizeMapList)
-			fmt.Printf("bufferv2 debugRealSizeMap: %s\n", data)
-
-			currentUsingBytes := atomic.LoadInt64(&usingBytes)
-			fmt.Printf("bufferv2 currentUsingBytes: %d\n", currentUsingBytes)
-
-			currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
-			fmt.Printf("bufferv2 currentMaxUsingFuzzyBytes: %d\n", currentMaxUsingFuzzyBytes)
-
-			debugMutex.Unlock()
-		}
-	}()
 }
 
 func init() {
@@ -167,7 +117,7 @@ func newChunk(size int) *chunk {
 			atomic.StoreInt64(&maxUsingFuzzyBytes, currentUsingBytes)
 		}
 
-		if debugSupport {
+		if debugChunkSupport {
 			debugMutex.Lock()
 			if val, ok := debugUsingMap[size]; ok {
 				debugUsingMap[size] = val + 1
@@ -201,10 +151,6 @@ func newChunk(size int) *chunk {
 
 		pool, allocSize := getChunkPool(size)
 
-		if 1024 == allocSize {
-			fmt.Println("xxxxxxx")
-		}
-
 		atomic.AddInt64(&usingBytes, int64(allocSize))
 
 		currentUsingBytes := atomic.LoadInt64(&usingBytes)
@@ -213,7 +159,7 @@ func newChunk(size int) *chunk {
 			atomic.StoreInt64(&maxUsingFuzzyBytes, currentUsingBytes)
 		}
 
-		if debugSupport {
+		if debugChunkSupport {
 			debugMutex.Lock()
 			if val, ok := debugUsingMap[allocSize]; ok {
 				debugUsingMap[allocSize] = val + 1
@@ -256,7 +202,7 @@ func (c *chunk) destroy() {
 	if len(c.data) > MaxChunkSize {
 		atomic.AddInt64(&usingBytes, -int64(len(c.data)))
 
-		if debugSupport {
+		if debugChunkSupport {
 			debugMutex.Lock()
 			if val, ok := debugUsingMap[len(c.data)]; ok {
 				debugUsingMap[len(c.data)] = val - 1
@@ -273,7 +219,7 @@ func (c *chunk) destroy() {
 
 	atomic.AddInt64(&usingBytes, -int64(allocSize))
 
-	if debugSupport {
+	if debugChunkSupport {
 		debugMutex.Lock()
 		if val, ok := debugUsingMap[allocSize]; ok {
 			debugUsingMap[allocSize] = val - 1

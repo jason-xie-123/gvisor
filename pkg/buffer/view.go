@@ -18,7 +18,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"time"
 
 	"gvisor.dev/gvisor/pkg/sync"
 )
@@ -64,21 +63,8 @@ var (
 	debugViewMutex sync.Mutex
 )
 
-func InternalStartDebugView() {
-	debugSupport = true
-
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range ticker.C {
-			debugViewMutex.Lock()
-			fmt.Printf("bufferv2 debugViewMap: %+v\n", debugViewMap)
-			debugViewMutex.Unlock()
-		}
-	}()
-}
-
 func addViewTag(tag string) {
-	if debugSupport {
+	if debugViewSupport {
 		if len(tag) > 0 {
 			debugViewMutex.Lock()
 
@@ -94,7 +80,7 @@ func addViewTag(tag string) {
 }
 
 func removeViewTag(tag string) {
-	if debugSupport {
+	if debugViewSupport {
 		if len(tag) > 0 {
 			debugViewMutex.Lock()
 
