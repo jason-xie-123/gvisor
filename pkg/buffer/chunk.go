@@ -66,7 +66,7 @@ type realSizeNode struct {
 	Counter  int `json:"counter"`
 }
 
-func InternalStartDebug() {
+func InternalStartDebugChunk() {
 	debugSupport = true
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -198,7 +198,12 @@ func newChunk(size int) *chunk {
 			debugMutex.Unlock()
 		}
 	} else {
+
 		pool, allocSize := getChunkPool(size)
+
+		if 1024 == allocSize {
+			fmt.Println("xxxxxxx")
+		}
 
 		atomic.AddInt64(&usingBytes, int64(allocSize))
 

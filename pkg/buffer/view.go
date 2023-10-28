@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"time"
 
 	"gvisor.dev/gvisor/pkg/sync"
 )
@@ -55,6 +56,57 @@ type View struct {
 	chunk     *chunk
 
 	leakyBufHandler *LeakyBuf
+	tag             string
+}
+
+var (
+	debugViewMap   map[string]int = make(map[string]int)
+	debugViewMutex sync.Mutex
+)
+
+func InternalStartDebugView() {
+	debugSupport = true
+
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			debugViewMutex.Lock()
+			fmt.Printf("bufferv2 debugViewMap: %+v\n", debugViewMap)
+			debugViewMutex.Unlock()
+		}
+	}()
+}
+
+func addViewTag(tag string) {
+	if debugSupport {
+		if len(tag) > 0 {
+			debugViewMutex.Lock()
+
+			if val, ok := debugViewMap[tag]; ok {
+				debugViewMap[tag] = val + 1
+			} else {
+				debugViewMap[tag] = 1
+			}
+
+			debugViewMutex.Unlock()
+		}
+	}
+}
+
+func removeViewTag(tag string) {
+	if debugSupport {
+		if len(tag) > 0 {
+			debugViewMutex.Lock()
+
+			if val, ok := debugViewMap[tag]; ok {
+				debugViewMap[tag] = val - 1
+			} else {
+				debugViewMap[tag] = -1
+			}
+
+			debugViewMutex.Unlock()
+		}
+	}
 }
 
 // NewView creates a new view with capacity at least as big as cap. It is
@@ -66,11 +118,32 @@ func NewView(cap int) *View {
 	return v
 }
 
+func NewViewWithTag(tag string, cap int) *View {
+	c := newChunk(cap)
+	v := viewPool.Get().(*View)
+	*v = View{chunk: c}
+
+	v.tag = tag
+	addViewTag(tag)
+
+	return v
+}
+
 // NewViewSize creates a new view with capacity at least as big as size and
 // length that is exactly size. It is analogous to make([]byte, size).
 func NewViewSize(size int) *View {
 	v := NewView(size)
 	v.Grow(size)
+	return v
+}
+
+func NewViewSizeWithTag(tag string, size int) *View {
+	v := NewView(size)
+	v.Grow(size)
+
+	v.tag = tag
+	addViewTag(tag)
+
 	return v
 }
 
@@ -86,15 +159,35 @@ func NewViewWithData(data []byte) *View {
 	return v
 }
 
-func NewViewByBase64Encode(src []byte) *View {
+func NewViewWithDataWithTag(tag string, data []byte) *View {
+	c := newChunk(len(data))
+	v := viewPool.Get().(*View)
+	*v = View{chunk: c}
+	v.Write(data)
+
+	v.tag = tag
+	addViewTag(tag)
+
+	return v
+}
+
+func NewViewByBase64EncodeWithTag(tag string, src []byte) *View {
 	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(src)))
+
+	buf.tag = tag
+	addViewTag(tag)
+
 	base64.StdEncoding.Encode(buf.AsSlice(), src)
 
 	return buf
 }
 
-func NewViewByBase64Decode(src []byte) (*View, error) {
+func NewViewByBase64DecodeWithTag(tag string, src []byte) (*View, error) {
 	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(src)))
+
+	buf.tag = tag
+	addViewTag(tag)
+
 	n, err := base64.StdEncoding.Decode(buf.AsSlice(), src)
 
 	if err != nil {
@@ -108,8 +201,12 @@ func NewViewByBase64Decode(src []byte) (*View, error) {
 	return buf, nil
 }
 
-func (v *View) DecodeByBase64() (*View, error) {
+func (v *View) DecodeByBase64WithTag(tag string) (*View, error) {
 	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(v.AsSlice())))
+
+	buf.tag = tag
+	addViewTag(tag)
+
 	n, err := base64.StdEncoding.Decode(buf.AsSlice(), v.AsSlice())
 
 	if err != nil {
@@ -123,8 +220,12 @@ func (v *View) DecodeByBase64() (*View, error) {
 	return buf, nil
 }
 
-func (v *View) EncodeToBase64() *View {
+func (v *View) EncodeToBase64WithTag(tag string) *View {
 	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(v.AsSlice())))
+
+	buf.tag = tag
+	addViewTag(tag)
+
 	base64.StdEncoding.Encode(buf.AsSlice(), v.AsSlice())
 
 	return buf
@@ -151,6 +252,8 @@ func (v *View) Release() {
 	if v == nil {
 		panic("cannot release a nil view")
 	}
+
+	removeViewTag(v.tag)
 
 	if v.leakyBufHandler != nil {
 		v.leakyBufHandler.put(v)
