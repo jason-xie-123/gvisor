@@ -93,34 +93,34 @@ func NewViewByBase64Encode(src []byte) *View {
 	return buf
 }
 
-func NewViewByBase64Decode(src []byte) *View {
+func NewViewByBase64Decode(src []byte) (*View, error) {
 	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(src)))
 	n, err := base64.StdEncoding.Decode(buf.AsSlice(), src)
 
 	if err != nil {
 		buf.Release()
-		return nil
+		return nil, err
 	}
 
 	buf.read = 0
 	buf.write = n
 
-	return buf
+	return buf, nil
 }
 
-func (v *View) DecodeByBase64() *View {
+func (v *View) DecodeByBase64() (*View, error) {
 	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(v.AsSlice())))
 	n, err := base64.StdEncoding.Decode(buf.AsSlice(), v.AsSlice())
 
 	if err != nil {
 		buf.Release()
-		return nil
+		return nil, err
 	}
 
 	buf.read = 0
 	buf.write = n
 
-	return buf
+	return buf, nil
 }
 
 func (v *View) EncodeToBase64() *View {
