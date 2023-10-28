@@ -294,6 +294,13 @@ func (v *View) TrimFront(n int) {
 	v.read += n
 }
 
+func (v *View) TrimEnd(n int) {
+	if v.read > v.write-n {
+		panic("cannot trim past the start of a view")
+	}
+	v.write -= n
+}
+
 // AsSlice returns a slice of the data written to this view.
 func (v *View) AsSlice() []byte {
 	if v.Size() == 0 {
