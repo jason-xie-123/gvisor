@@ -15,6 +15,7 @@
 package buffer
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -83,6 +84,28 @@ func NewViewWithData(data []byte) *View {
 	*v = View{chunk: c}
 	v.Write(data)
 	return v
+}
+
+func NewViewByBase64Encode(src []byte) *View {
+	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(src)))
+	base64.StdEncoding.Encode(buf.AsSlice(), src)
+
+	return buf
+}
+
+func (v *View) DecodeByBase64() *View {
+	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(v.AsSlice())))
+	n, err := base64.StdEncoding.Decode(buf.AsSlice(), v.AsSlice())
+
+	if err != nil {
+		buf.Release()
+		return nil
+	}
+
+	buf.read = 0
+	buf.write = n
+
+	return buf
 }
 
 // Clone creates a shallow clone of v where the underlying chunk is shared.
