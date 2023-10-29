@@ -49,6 +49,7 @@ var viewPool = sync.Pool{
 //
 // +stateify savable
 type View struct {
+	io.Writer
 	viewEntry `state:"nosave"`
 	read      int
 	write     int
