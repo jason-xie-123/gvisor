@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"gvisor.dev/gvisor/pkg/atomicbitops"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/waiter"
 )
@@ -2517,6 +2518,94 @@ func clone(dst reflect.Value, src reflect.Value) {
 		} else {
 			clone(d, s)
 		}
+	}
+}
+
+const ipv4Format = "%d.%d.%d.%d"
+
+// ubtoa encodes the string form of the integer v to dst[start:] and
+// returns the number of bytes written to dst. The caller must ensure
+// that dst has sufficient length.
+func ubtoa(dst *buffer.View, start int, v byte) int {
+	if v < 10 {
+		dst.WriteByte(v + '0')
+		return 1
+	} else if v < 100 {
+		dst.WriteByte(v/10 + '0')
+		dst.WriteByte(v%10 + '0')
+		return 2
+	}
+	dst.WriteByte(v/100 + '0')
+	dst.WriteByte((v/10)%10 + '0')
+	dst.WriteByte(v%10 + '0')
+
+	return 3
+}
+
+// String implements the fmt.Stringer interface.
+func (a Address) StringBuf() *buffer.View {
+	switch l := a.Len(); l {
+	case 4:
+		buf := buffer.NewViewWithTag("tag-uy", 15) //len("255.255.255.255")
+
+		n := ubtoa(buf, 0, a.addr[0])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[1])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[2])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[3])
+
+		return buf
+	case 16:
+		// Find the longest subsequence of hexadecimal zeros.
+		start, end := -1, -1
+		for i := 0; i < a.Len(); i += 2 {
+			j := i
+			for j < a.Len() && a.addr[j] == 0 && a.addr[j+1] == 0 {
+				j += 2
+			}
+			if j > i+2 && j-i > end-start {
+				start, end = i, j
+			}
+		}
+
+		buf := buffer.NewViewWithTag("tag-us", 39) // len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")
+		for i := 0; i < a.Len(); i += 2 {
+			if i == start {
+				buf.WriteByte(':')
+				buf.WriteByte(':')
+
+				i = end
+				if end >= a.Len() {
+					break
+				}
+			} else if i > 0 {
+				buf.WriteByte(':')
+			}
+			v := uint16(a.addr[i+0])<<8 | uint16(a.addr[i+1])
+			if v == 0 {
+				buf.WriteByte('0')
+			} else {
+				const digits = "0123456789abcdef"
+				for i := uint(3); i < 4; i-- {
+					if v := v >> (i * 4); v != 0 {
+						buf.WriteByte(digits[v&0xf])
+					}
+				}
+			}
+		}
+		return buf
+	default:
+		buf := buffer.NewViewWithTag("tag-us", 128)
+		fmt.Fprintf(buf, "%x", a.addr[:l])
+		return buf
 	}
 }
 
