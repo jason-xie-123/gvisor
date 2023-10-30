@@ -15,6 +15,7 @@
 package bufferv2
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -63,11 +64,26 @@ func NewView(cap int) *View {
 	return v
 }
 
+func NewViewWithTag(tag string, cap int) *View {
+	c := newChunk(cap)
+	v := viewPool.Get().(*View)
+	*v = View{chunk: c}
+
+	return v
+}
+
 // NewViewSize creates a new view with capacity at least as big as size and
 // length that is exactly size. It is analogous to make([]byte, size).
 func NewViewSize(size int) *View {
 	v := NewView(size)
 	v.Grow(size)
+	return v
+}
+
+func NewViewSizeWithTag(tag string, size int) *View {
+	v := NewView(size)
+	v.Grow(size)
+
 	return v
 }
 
@@ -81,6 +97,63 @@ func NewViewWithData(data []byte) *View {
 	*v = View{chunk: c}
 	v.Write(data)
 	return v
+}
+
+func NewViewWithDataWithTag(tag string, data []byte) *View {
+	c := newChunk(len(data))
+	v := viewPool.Get().(*View)
+	*v = View{chunk: c}
+	v.Write(data)
+
+	return v
+}
+
+func NewViewByBase64EncodeWithTag(tag string, src []byte) *View {
+	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(src)))
+
+	base64.StdEncoding.Encode(buf.AsSlice(), src)
+
+	return buf
+}
+
+func NewViewByBase64DecodeWithTag(tag string, src []byte) (*View, error) {
+	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(src)))
+
+	n, err := base64.StdEncoding.Decode(buf.AsSlice(), src)
+
+	if err != nil {
+		buf.Release()
+		return nil, err
+	}
+
+	buf.read = 0
+	buf.write = n
+
+	return buf, nil
+}
+
+func (v *View) DecodeByBase64WithTag(tag string) (*View, error) {
+	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(v.AsSlice())))
+
+	n, err := base64.StdEncoding.Decode(buf.AsSlice(), v.AsSlice())
+
+	if err != nil {
+		buf.Release()
+		return nil, err
+	}
+
+	buf.read = 0
+	buf.write = n
+
+	return buf, nil
+}
+
+func (v *View) EncodeToBase64WithTag(tag string) *View {
+	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(v.AsSlice())))
+
+	base64.StdEncoding.Encode(buf.AsSlice(), v.AsSlice())
+
+	return buf
 }
 
 // Clone creates a shallow clone of v where the underlying chunk is shared.
