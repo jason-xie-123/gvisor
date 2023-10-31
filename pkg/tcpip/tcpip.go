@@ -2603,7 +2603,7 @@ func (a Address) StringBuf() *buffer.View {
 		}
 		return buf
 	default:
-		buf := buffer.NewViewWithTag("tag-us", 128)
+		buf := buffer.NewViewWithTag("tag-us", 0)
 		fmt.Fprintf(buf, "%x", a.addr[:l])
 		return buf
 	}

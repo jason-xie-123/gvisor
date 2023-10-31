@@ -79,6 +79,10 @@ func GetChunkPoolUsingBytes() int64 {
 
 // Precondition: 0 <= size <= maxChunkSize
 func getChunkPool(size int) (*sync.Pool, int) {
+	if size == 0 {
+		return nil, 0
+	}
+
 	idx := -1
 	for index, poolSize := range poolSizes {
 		if size <= poolSize {
@@ -189,9 +193,15 @@ func newChunk(size int) *chunk {
 			debugMutex.Unlock()
 		}
 
-		c = pool.Get().(*chunk)
-		for i := range c.data {
-			c.data[i] = 0
+		if pool == nil {
+			c = &chunk{
+				data: nil,
+			}
+		} else {
+			c = pool.Get().(*chunk)
+			for i := range c.data {
+				c.data[i] = 0
+			}
 		}
 	}
 	c.InitRefs()
@@ -229,7 +239,11 @@ func (c *chunk) destroy() {
 		debugMutex.Unlock()
 	}
 
-	pool.Put(c)
+	if pool != nil {
+		pool.Put(c)
+	} else {
+		c.data = nil
+	}
 }
 
 func (c *chunk) DecRef() {
