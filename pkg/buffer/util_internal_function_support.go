@@ -13,7 +13,7 @@ import (
 
 var (
 	debugChunkSupport bool = true
-	debugViewSupport       = true
+	debugViewSupport  bool = true
 )
 
 func InternalStartDebugChunk() {
