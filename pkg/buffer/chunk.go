@@ -38,6 +38,7 @@ const (
 	MaxChunkSize = 65536
 
 	// The number of chunk pools we have for use.
+	// numPools = 12
 	numPools = 20
 )
 
@@ -46,6 +47,7 @@ const (
 var chunkPools [numPools]sync.Pool
 
 var (
+	// poolSizes = [numPools]int{64, 128, 256, 512, 1024, 1500, 2048, 4096, 8192, 16384, 32768, 65536}
 	poolSizes = [numPools]int{4, 64, 92, 128, 144, 256, 296, 512, 600, 884, 1024, 1216, 1460, 1500, 2048, 4096, 8192, 16384, 32768, 65536}
 
 	usingBytes         int64 = 0
@@ -80,6 +82,7 @@ func GetChunkPoolUsingBytes() int64 {
 // Precondition: 0 <= size <= maxChunkSize
 func getChunkPool(size int) (*sync.Pool, int) {
 	if size == 0 {
+		// size = 512
 		return nil, 0
 	}
 
