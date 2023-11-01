@@ -90,6 +90,8 @@ type segment struct {
 
 	// lost indicates if the segment is marked as lost by RACK.
 	lost bool
+
+	supportMaxCounter bool
 }
 
 func newIncomingSegment(id stack.TransportEndpointID, clock tcpip.Clock, pkt stack.PacketBufferPtr) (*segment, error) {

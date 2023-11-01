@@ -1,5 +1,12 @@
 package tcp
 
+import (
+	"fmt"
+	"time"
+
+	"gvisor.dev/gvisor/pkg/sync"
+)
+
 // ElementMapper provides an identity mapping by default.
 //
 // This can be replaced to provide a struct that maps elements to linker
@@ -27,9 +34,24 @@ func (segmentElementMapper) linkerFor(elem *segment) *segment { return elem }
 //	}
 //
 // +stateify savable
+var (
+	segmentListMaxCount        int
+	segmentListSupportMaxCount int
+	segmentListCount           int
+	segmentListMutex           sync.Mutex
+)
+
+func init() {
+	// InternalSetSupportMaxCount(500)
+}
+
 type segmentList struct {
 	head *segment
 	tail *segment
+}
+
+func InternalSetSupportMaxCount(count int) {
+	segmentListSupportMaxCount = count
 }
 
 // Reset resets list l to the empty state.
@@ -83,7 +105,6 @@ func (l *segmentList) PushFront(e *segment) {
 	} else {
 		l.tail = e
 	}
-
 	l.head = e
 }
 
@@ -118,6 +139,21 @@ func (l *segmentList) PushBack(e *segment) {
 	}
 
 	l.tail = e
+
+	if segmentListSupportMaxCount > 0 && e.supportMaxCounter {
+		segmentListMutex.Lock()
+		segmentListCount += 1
+
+		if segmentListCount > segmentListSupportMaxCount {
+			time.Sleep(30 * time.Millisecond)
+		}
+		if segmentListMaxCount < segmentListCount {
+			segmentListMaxCount = segmentListCount
+		}
+
+		fmt.Printf("segmentList[push] counter: count=%d maxCount=%d\n", segmentListCount, segmentListMaxCount)
+		segmentListMutex.Unlock()
+	}
 }
 
 // PushBackList inserts list m at the end of list l, emptying m.
@@ -198,6 +234,14 @@ func (l *segmentList) Remove(e *segment) {
 
 	linker.SetNext(nil)
 	linker.SetPrev(nil)
+
+	if segmentListSupportMaxCount > 0 && e.supportMaxCounter {
+		segmentListMutex.Lock()
+		segmentListCount -= 1
+
+		fmt.Printf("segmentList[consume] counter: count=%d maxCount=%d\n", segmentListCount, segmentListMaxCount)
+		segmentListMutex.Unlock()
+	}
 }
 
 // Entry is a default implementation of Linker. Users can add anonymous fields
