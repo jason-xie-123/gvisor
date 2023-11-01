@@ -1,7 +1,6 @@
 package tcp
 
 import (
-	"fmt"
 	"sync/atomic"
 )
 
@@ -141,7 +140,7 @@ func (l *segmentList) PushBack(e *segment) {
 			atomic.StoreInt64(&segmentListMaxCount, segmentListCountValue)
 		}
 
-		fmt.Printf("segmentList[push] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
+		// fmt.Printf("segmentList[push] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
 	}
 }
 
@@ -226,10 +225,10 @@ func (l *segmentList) Remove(e *segment) {
 
 	if e.supportMaxCounter {
 		atomic.AddInt64(&segmentListCount, -1)
-		segmentListCountValue := atomic.LoadInt64(&segmentListCount)
-		segmentListMaxCountValue := atomic.LoadInt64(&segmentListMaxCount)
+		// segmentListCountValue := atomic.LoadInt64(&segmentListCount)
+		// segmentListMaxCountValue := atomic.LoadInt64(&segmentListMaxCount)
 
-		fmt.Printf("segmentList[consume] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
+		// fmt.Printf("segmentList[consume] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
 	}
 }
 
