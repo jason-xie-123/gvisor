@@ -1,6 +1,3 @@
-//go:build !internal
-// +build !internal
-
 package bufferv2
 
 var (
