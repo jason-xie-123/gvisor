@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package bufferv2
+package buffer
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -49,10 +48,15 @@ var viewPool = sync.Pool{
 //
 // +stateify savable
 type View struct {
+	io.Writer
+	io.Reader
 	viewEntry `state:"nosave"`
 	read      int
 	write     int
 	chunk     *chunk
+
+	leakyBufHandler *LeakyBuf
+	tag             string
 }
 
 // NewView creates a new view with capacity at least as big as cap. It is
@@ -64,26 +68,11 @@ func NewView(cap int) *View {
 	return v
 }
 
-func NewViewWithTag(tag string, cap int) *View {
-	c := newChunk(cap)
-	v := viewPool.Get().(*View)
-	*v = View{chunk: c}
-
-	return v
-}
-
 // NewViewSize creates a new view with capacity at least as big as size and
 // length that is exactly size. It is analogous to make([]byte, size).
 func NewViewSize(size int) *View {
 	v := NewView(size)
 	v.Grow(size)
-	return v
-}
-
-func NewViewSizeWithTag(tag string, size int) *View {
-	v := NewView(size)
-	v.Grow(size)
-
 	return v
 }
 
@@ -97,63 +86,6 @@ func NewViewWithData(data []byte) *View {
 	*v = View{chunk: c}
 	v.Write(data)
 	return v
-}
-
-func NewViewWithDataWithTag(tag string, data []byte) *View {
-	c := newChunk(len(data))
-	v := viewPool.Get().(*View)
-	*v = View{chunk: c}
-	v.Write(data)
-
-	return v
-}
-
-func NewViewByBase64EncodeWithTag(tag string, src []byte) *View {
-	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(src)))
-
-	base64.StdEncoding.Encode(buf.AsSlice(), src)
-
-	return buf
-}
-
-func NewViewByBase64DecodeWithTag(tag string, src []byte) (*View, error) {
-	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(src)))
-
-	n, err := base64.StdEncoding.Decode(buf.AsSlice(), src)
-
-	if err != nil {
-		buf.Release()
-		return nil, err
-	}
-
-	buf.read = 0
-	buf.write = n
-
-	return buf, nil
-}
-
-func (v *View) DecodeByBase64WithTag(tag string) (*View, error) {
-	buf := NewViewSize(base64.StdEncoding.DecodedLen(len(v.AsSlice())))
-
-	n, err := base64.StdEncoding.Decode(buf.AsSlice(), v.AsSlice())
-
-	if err != nil {
-		buf.Release()
-		return nil, err
-	}
-
-	buf.read = 0
-	buf.write = n
-
-	return buf, nil
-}
-
-func (v *View) EncodeToBase64WithTag(tag string) *View {
-	buf := NewViewSize(base64.StdEncoding.EncodedLen(len(v.AsSlice())))
-
-	base64.StdEncoding.Encode(buf.AsSlice(), v.AsSlice())
-
-	return buf
 }
 
 // Clone creates a shallow clone of v where the underlying chunk is shared.
@@ -177,6 +109,13 @@ func (v *View) Release() {
 	if v == nil {
 		panic("cannot release a nil view")
 	}
+
+	removeViewTag(v.tag)
+
+	if v.leakyBufHandler != nil {
+		v.leakyBufHandler.put(v)
+	}
+
 	v.chunk.DecRef()
 	*v = View{}
 	viewPool.Put(v)
@@ -331,22 +270,6 @@ func (v *View) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (v *View) WriteByte(p byte) error {
-	if v == nil {
-		panic("cannot write to a nil view")
-	}
-	if v.AvailableSize() < 1 {
-		v.growCap(1 - v.AvailableSize())
-	} else if v.sharesChunk() {
-		defer v.chunk.DecRef()
-		v.chunk = v.chunk.Clone()
-	}
-	v.chunk.data[v.write] = p
-	v.write += 1
-
-	return nil
-}
-
 // ReadFrom reads data from r until EOF and appends it to the buffer, growing
 // the buffer as needed. The return value n is the number of bytes read. Any
 // error except io.EOF encountered during the read is also returned.
@@ -379,28 +302,6 @@ func (v *View) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, e
 		}
 	}
-}
-
-func (v *View) ReadFromForFalcon(r io.Reader, maxSize int) (n int, err error) {
-	if v == nil {
-		panic("cannot write to a nil view")
-	}
-
-	if v.sharesChunk() {
-		defer v.chunk.DecRef()
-		v.chunk = v.chunk.Clone()
-	}
-
-	source := v.availableSlice()
-	if maxSize < len(source) {
-		source = source[:maxSize]
-	}
-
-	m, e := r.Read(source)
-	v.write += m
-	n += m
-
-	return n, e
 }
 
 // WriteAt writes data to the views's chunk starting at start. If the
