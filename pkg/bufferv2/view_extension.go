@@ -1,4 +1,4 @@
-package buffer
+package bufferv2
 
 import (
 	"encoding/base64"

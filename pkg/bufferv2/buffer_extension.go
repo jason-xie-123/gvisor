@@ -1,4 +1,4 @@
-package buffer
+package bufferv2
 
 func (b *Buffer) SubApplyBytes(offset, length int, fn func([]byte)) {
 	for v := b.data.Front(); length > 0 && v != nil; v = v.Next() {

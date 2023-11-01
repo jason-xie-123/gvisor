@@ -1,7 +1,7 @@
 //go:build !internal
 // +build !internal
 
-package buffer
+package bufferv2
 
 var (
 	debugChunkSupport bool = false
