@@ -45,19 +45,6 @@ func (l *LeakyBuf) Get(cap int) (b *View) {
 		b = NewView(cap)
 		atomic.AddInt64(&l.totalNum, 1)
 	} else {
-		// IOS-LOGIC
-		// if l.systemType == "ios" {
-		// 	if !l.isMemHigh {
-		// 		if GetChunkPoolUsingBytes() > 150*1024 {
-		// 			time.Sleep(30 * time.Millisecond)
-		// 		}
-		// 	} else {
-		// 		if GetChunkPoolUsingBytes() > 10*1024*1024 {
-		// 			// time.Sleep(50 * time.Millisecond)
-		// 		}
-		// 	}
-		// }
-
 		b = NewView(cap)
 		atomic.AddInt64(&l.extraNum, 1)
 	}

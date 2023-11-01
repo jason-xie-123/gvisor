@@ -2,9 +2,7 @@ package tcp
 
 import (
 	"fmt"
-	"time"
-
-	"gvisor.dev/gvisor/pkg/sync"
+	"sync/atomic"
 )
 
 // ElementMapper provides an identity mapping by default.
@@ -35,23 +33,17 @@ func (segmentElementMapper) linkerFor(elem *segment) *segment { return elem }
 //
 // +stateify savable
 var (
-	segmentListMaxCount        int
-	segmentListSupportMaxCount int
-	segmentListCount           int
-	segmentListMutex           sync.Mutex
+	segmentListMaxCount int64
+	segmentListCount    int64
 )
-
-func init() {
-	// InternalSetSupportMaxCount(500)
-}
 
 type segmentList struct {
 	head *segment
 	tail *segment
 }
 
-func InternalSetSupportMaxCount(count int) {
-	segmentListSupportMaxCount = count
+func InternalGetCurrentSegmentListSize() int64 {
+	return atomic.LoadInt64(&segmentListCount)
 }
 
 // Reset resets list l to the empty state.
@@ -140,19 +132,16 @@ func (l *segmentList) PushBack(e *segment) {
 
 	l.tail = e
 
-	if segmentListSupportMaxCount > 0 && e.supportMaxCounter {
-		segmentListMutex.Lock()
-		segmentListCount += 1
+	if e.supportMaxCounter {
+		atomic.AddInt64(&segmentListCount, 1)
+		segmentListCountValue := atomic.LoadInt64(&segmentListCount)
+		segmentListMaxCountValue := atomic.LoadInt64(&segmentListMaxCount)
 
-		if segmentListCount > segmentListSupportMaxCount {
-			time.Sleep(30 * time.Millisecond)
-		}
-		if segmentListMaxCount < segmentListCount {
-			segmentListMaxCount = segmentListCount
+		if segmentListMaxCountValue < segmentListCountValue {
+			atomic.StoreInt64(&segmentListMaxCount, segmentListCountValue)
 		}
 
-		fmt.Printf("segmentList[push] counter: count=%d maxCount=%d\n", segmentListCount, segmentListMaxCount)
-		segmentListMutex.Unlock()
+		fmt.Printf("segmentList[push] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
 	}
 }
 
@@ -235,12 +224,12 @@ func (l *segmentList) Remove(e *segment) {
 	linker.SetNext(nil)
 	linker.SetPrev(nil)
 
-	if segmentListSupportMaxCount > 0 && e.supportMaxCounter {
-		segmentListMutex.Lock()
-		segmentListCount -= 1
+	if e.supportMaxCounter {
+		atomic.AddInt64(&segmentListCount, -1)
+		segmentListCountValue := atomic.LoadInt64(&segmentListCount)
+		segmentListMaxCountValue := atomic.LoadInt64(&segmentListMaxCount)
 
-		fmt.Printf("segmentList[consume] counter: count=%d maxCount=%d\n", segmentListCount, segmentListMaxCount)
-		segmentListMutex.Unlock()
+		fmt.Printf("segmentList[consume] counter: count=%d maxCount=%d\n", segmentListCountValue, segmentListMaxCountValue)
 	}
 }
 
