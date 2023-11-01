@@ -16,7 +16,6 @@ package bufferv2
 
 import (
 	"fmt"
-	"time"
 
 	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/sync"
@@ -45,31 +44,6 @@ const (
 // size of the payloads doubles in each successive pool.
 var chunkPools [numPools]sync.Pool
 
-var (
-	debugSupport     bool = false
-	debugMutex       sync.Mutex
-	debugUsingMap    map[int]int = make(map[int]int)
-	debugUsingMaxMap map[int]int = make(map[int]int)
-	debugAllocMap    map[int]int = make(map[int]int)
-	debugRealSizeMap map[int]int = make(map[int]int)
-)
-
-func InternalStartDebug() {
-	debugSupport = true
-
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range ticker.C {
-			debugMutex.Lock()
-			fmt.Printf("bufferv2 debugUsingMap: %+v\n", debugUsingMap)
-			fmt.Printf("bufferv2 debugUsingMaxMap: %+v\n", debugUsingMaxMap)
-			fmt.Printf("bufferv2 debugAllocMap: %+v\n", debugAllocMap)
-			fmt.Printf("bufferv2 debugRealSizeMap: %+v\n", debugRealSizeMap)
-			debugMutex.Unlock()
-		}
-	}()
-}
-
 func init() {
 	for i := 0; i < numPools; i++ {
 		chunkSize := baseChunkSize * (1 << i)
@@ -82,7 +56,7 @@ func init() {
 }
 
 // Precondition: 0 <= size <= maxChunkSize
-func getChunkPool(size int) (*sync.Pool, int) {
+func getChunkPool(size int) *sync.Pool {
 	idx := 0
 	if size > baseChunkSize {
 		idx = bits.MostSignificantOne64(uint64(size) >> baseChunkSizeLog2)
@@ -93,7 +67,7 @@ func getChunkPool(size int) (*sync.Pool, int) {
 	if idx >= numPools {
 		panic(fmt.Sprintf("pool for chunk size %d does not exist", size))
 	}
-	return &chunkPools[idx], 1 << (idx + baseChunkSizeLog2)
+	return &chunkPools[idx]
 }
 
 // Chunk represents a slice of pooled memory.
@@ -110,70 +84,8 @@ func newChunk(size int) *chunk {
 		c = &chunk{
 			data: make([]byte, size),
 		}
-
-		if debugSupport {
-			debugMutex.Lock()
-			if val, ok := debugUsingMap[size]; ok {
-				debugUsingMap[size] = val + 1
-			} else {
-				debugUsingMap[size] = 1
-			}
-
-			if val, ok := debugUsingMaxMap[size]; ok {
-				if val < debugUsingMap[size] {
-					debugUsingMaxMap[size] = debugUsingMap[size]
-				}
-			} else {
-				debugUsingMaxMap[size] = debugUsingMap[size]
-			}
-
-			if val, ok := debugAllocMap[size]; ok {
-				debugAllocMap[size] = val + 1
-			} else {
-				debugAllocMap[size] = 1
-			}
-
-			if val, ok := debugRealSizeMap[size]; ok {
-				debugRealSizeMap[size] = val + 1
-			} else {
-				debugRealSizeMap[size] = 1
-			}
-
-			debugMutex.Unlock()
-		}
 	} else {
-		pool, allcoSize := getChunkPool(size)
-
-		if debugSupport {
-			debugMutex.Lock()
-			if val, ok := debugUsingMap[allcoSize]; ok {
-				debugUsingMap[allcoSize] = val + 1
-			} else {
-				debugUsingMap[allcoSize] = 1
-			}
-
-			if val, ok := debugUsingMaxMap[allcoSize]; ok {
-				if val < debugUsingMap[allcoSize] {
-					debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
-				}
-			} else {
-				debugUsingMaxMap[allcoSize] = debugUsingMap[allcoSize]
-			}
-
-			if val, ok := debugAllocMap[allcoSize]; ok {
-				debugAllocMap[allcoSize] = val + 1
-			} else {
-				debugAllocMap[allcoSize] = 1
-			}
-
-			if val, ok := debugRealSizeMap[size]; ok {
-				debugRealSizeMap[size] = val + 1
-			} else {
-				debugRealSizeMap[size] = 1
-			}
-			debugMutex.Unlock()
-		}
-
+		pool := getChunkPool(size)
 		c = pool.Get().(*chunk)
 		for i := range c.data {
 			c.data[i] = 0
@@ -185,31 +97,10 @@ func newChunk(size int) *chunk {
 
 func (c *chunk) destroy() {
 	if len(c.data) > MaxChunkSize {
-		if debugSupport {
-			debugMutex.Lock()
-			if val, ok := debugUsingMap[len(c.data)]; ok {
-				debugUsingMap[len(c.data)] = val - 1
-			} else {
-				debugUsingMap[len(c.data)] = 0
-			}
-			debugMutex.Unlock()
-		}
-
 		c.data = nil
 		return
 	}
-	pool, allcoSize := getChunkPool(len(c.data))
-
-	if debugSupport {
-		debugMutex.Lock()
-		if val, ok := debugUsingMap[allcoSize]; ok {
-			debugUsingMap[allcoSize] = val - 1
-		} else {
-			debugUsingMap[allcoSize] = 0
-		}
-		debugMutex.Unlock()
-	}
-
+	pool := getChunkPool(len(c.data))
 	pool.Put(c)
 }
 
