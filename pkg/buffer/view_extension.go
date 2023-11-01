@@ -3,12 +3,91 @@ package buffer
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"math/bits"
 	"net"
+	"sync/atomic"
 	"unsafe"
 
 	"gvisor.dev/gvisor/pkg/sync"
 )
+
+type LeakyBuf struct {
+	totalNum   int64
+	extraNum   int64
+	maxFreeLen int64
+	getTimes   int64
+	putTimes   int64
+	systemType string
+	isMemHigh  bool
+}
+
+func NewLeakyBuf(n int64, platform string, isMemHigh bool) *LeakyBuf {
+	return &LeakyBuf{
+		totalNum:   0,
+		extraNum:   0,
+		maxFreeLen: n,
+		systemType: platform,
+		isMemHigh:  isMemHigh,
+	}
+}
+
+func (l *LeakyBuf) Get(cap int) (b *View) {
+	totalNum := atomic.LoadInt64(&l.totalNum)
+	if totalNum < l.maxFreeLen {
+		b = NewView(cap)
+		atomic.AddInt64(&l.totalNum, 1)
+	} else {
+		b = NewView(cap)
+		atomic.AddInt64(&l.extraNum, 1)
+	}
+
+	b.leakyBufHandler = l
+
+	atomic.AddInt64(&l.getTimes, 1)
+	return
+}
+
+func (l *LeakyBuf) put(b *View) {
+	extraNum := atomic.LoadInt64(&l.extraNum)
+
+	if extraNum > 0 {
+		atomic.AddInt64(&l.extraNum, -1)
+	} else {
+		totalNum := atomic.LoadInt64(&l.totalNum)
+		if totalNum > 0 {
+			atomic.AddInt64(&l.totalNum, -1)
+		}
+	}
+
+	atomic.AddInt64(&l.putTimes, 1)
+
+	return
+}
+
+func (l *LeakyBuf) Len() int {
+	totalNum := atomic.LoadInt64(&l.totalNum)
+
+	return int(totalNum)
+}
+
+func (l *LeakyBuf) Times() int64 {
+	getTimes := atomic.LoadInt64(&l.getTimes)
+	putTimes := atomic.LoadInt64(&l.putTimes)
+	return getTimes - putTimes
+}
+
+func (l *LeakyBuf) TotalNums() int64 {
+	return atomic.LoadInt64(&l.totalNum)
+}
+
+func (l *LeakyBuf) GetTimes() int64 {
+	return atomic.LoadInt64(&l.getTimes)
+}
+
+func (l *LeakyBuf) PutTimes() int64 {
+	return atomic.LoadInt64(&l.putTimes)
+}
 
 const fastSmalls = true // enable fast path for small integers
 
