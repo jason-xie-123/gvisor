@@ -165,13 +165,6 @@ func (v *View) TrimFront(n int) {
 	v.read += n
 }
 
-func (v *View) TrimEnd(n int) {
-	if v.read > v.write-n {
-		panic("cannot trim past the start of a view")
-	}
-	v.write -= n
-}
-
 // AsSlice returns a slice of the data written to this view.
 func (v *View) AsSlice() []byte {
 	if v.Size() == 0 {
@@ -277,22 +270,6 @@ func (v *View) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (v *View) WriteByte(p byte) error {
-	if v == nil {
-		panic("cannot write to a nil view")
-	}
-	if v.AvailableSize() < 1 {
-		v.growCap(1 - v.AvailableSize())
-	} else if v.sharesChunk() {
-		defer v.chunk.DecRef()
-		v.chunk = v.chunk.Clone()
-	}
-	v.chunk.data[v.write] = p
-	v.write += 1
-
-	return nil
-}
-
 // ReadFrom reads data from r until EOF and appends it to the buffer, growing
 // the buffer as needed. The return value n is the number of bytes read. Any
 // error except io.EOF encountered during the read is also returned.
@@ -325,51 +302,6 @@ func (v *View) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, e
 		}
 	}
-}
-
-func (v *View) ReadFromForFalcon(r io.Reader, maxSize int) (n int, err error) {
-	if v == nil {
-		panic("cannot write to a nil view")
-	}
-
-	if v.sharesChunk() {
-		defer v.chunk.DecRef()
-		v.chunk = v.chunk.Clone()
-	}
-
-	source := v.availableSlice()
-	if maxSize < len(source) {
-		source = source[:maxSize]
-	}
-
-	m, e := r.Read(source)
-	v.write += m
-	n += m
-
-	return n, e
-}
-
-func (v *View) ReadFromForUnknownSource(maxSize int, readFun func([]byte) (int, error)) (n int, err error) {
-	if v == nil {
-		panic("cannot write to a nil view")
-	}
-
-	if v.sharesChunk() {
-		defer v.chunk.DecRef()
-		v.chunk = v.chunk.Clone()
-	}
-
-	source := v.availableSlice()
-	if maxSize < len(source) {
-		source = source[:maxSize]
-	}
-
-	m, e := readFun(source)
-
-	v.write += m
-	n += m
-
-	return n, e
 }
 
 // WriteAt writes data to the views's chunk starting at start. If the

@@ -395,6 +395,74 @@ func (bufView *View) WriteIPIntoStringBuf(ip net.IP) {
 	}
 }
 
+func (v *View) TrimEnd(n int) {
+	if v.read > v.write-n {
+		panic("cannot trim past the start of a view")
+	}
+	v.write -= n
+}
+
+func (v *View) WriteByte(p byte) error {
+	if v == nil {
+		panic("cannot write to a nil view")
+	}
+	if v.AvailableSize() < 1 {
+		v.growCap(1 - v.AvailableSize())
+	} else if v.sharesChunk() {
+		defer v.chunk.DecRef()
+		v.chunk = v.chunk.Clone()
+	}
+	v.chunk.data[v.write] = p
+	v.write += 1
+
+	return nil
+}
+
+func (v *View) ReadFromForFalcon(r io.Reader, maxSize int) (n int, err error) {
+	if v == nil {
+		panic("cannot write to a nil view")
+	}
+
+	if v.sharesChunk() {
+		defer v.chunk.DecRef()
+		v.chunk = v.chunk.Clone()
+	}
+
+	source := v.availableSlice()
+	if maxSize < len(source) {
+		source = source[:maxSize]
+	}
+
+	m, e := r.Read(source)
+	v.write += m
+	n += m
+
+	return n, e
+}
+
+func (v *View) ReadFromForUnknownSource(maxSize int, readFun func([]byte) (int, error)) (n int, err error) {
+	if v == nil {
+		panic("cannot write to a nil view")
+	}
+
+	if v.sharesChunk() {
+		defer v.chunk.DecRef()
+		v.chunk = v.chunk.Clone()
+	}
+
+	source := v.availableSlice()
+	if maxSize < len(source) {
+		source = source[:maxSize]
+	}
+
+	m, e := readFun(source)
+
+	v.write += m
+	n += m
+
+	return n, e
+}
+
 func StringToBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
