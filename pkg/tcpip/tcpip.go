@@ -2543,6 +2543,65 @@ func ubtoa(dst *buffer.View, start int, v byte) int {
 }
 
 // String implements the fmt.Stringer interface.
+func (a *Address) WriteStringIntoBuf(buf *buffer.View) {
+	switch l := a.Len(); l {
+	case 4:
+		n := ubtoa(buf, 0, a.addr[0])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[1])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[2])
+		buf.WriteByte('.')
+		n++
+
+		n += ubtoa(buf, n, a.addr[3])
+	case 16:
+		// Find the longest subsequence of hexadecimal zeros.
+		start, end := -1, -1
+		for i := 0; i < a.Len(); i += 2 {
+			j := i
+			for j < a.Len() && a.addr[j] == 0 && a.addr[j+1] == 0 {
+				j += 2
+			}
+			if j > i+2 && j-i > end-start {
+				start, end = i, j
+			}
+		}
+
+		for i := 0; i < a.Len(); i += 2 {
+			if i == start {
+				buf.WriteByte(':')
+				buf.WriteByte(':')
+
+				i = end
+				if end >= a.Len() {
+					break
+				}
+			} else if i > 0 {
+				buf.WriteByte(':')
+			}
+			v := uint16(a.addr[i+0])<<8 | uint16(a.addr[i+1])
+			if v == 0 {
+				buf.WriteByte('0')
+			} else {
+				const digits = "0123456789abcdef"
+				for i := uint(3); i < 4; i-- {
+					if v := v >> (i * 4); v != 0 {
+						buf.WriteByte(digits[v&0xf])
+					}
+				}
+			}
+		}
+	default:
+		fmt.Fprintf(buf, "%x", a.addr[:l])
+	}
+}
+
+// String implements the fmt.Stringer interface.
 func (a Address) StringBuf() *buffer.View {
 	switch l := a.Len(); l {
 	case 4:
