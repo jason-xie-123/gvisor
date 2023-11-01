@@ -415,8 +415,12 @@ func (v *View) WriteUint16AsString(number uint16) {
 	}
 }
 
+func (v *View) WriteByteAsIPString(ip []byte) {
+	v.WriteIPAsString(ip)
+}
+
 // String implements the fmt.Stringer interface.
-func (bufView *View) WriteIPIntoStringBuf(ip net.IP) {
+func (bufView *View) WriteIPAsString(ip net.IP) {
 	switch l := len(ip); l {
 	case 4:
 		n := ubtoa(bufView, 0, ip[0])
@@ -554,7 +558,7 @@ func BytesToStringWithLen(b []byte, len int) string {
 	return unsafe.String(&b[0], len)
 }
 
-func clearString(str string) {
+func ClearString(str string) {
 	slice := StringToBytes(str)
 	for i := range slice {
 		if i >= 1 {
@@ -563,7 +567,7 @@ func clearString(str string) {
 	}
 }
 
-func clearBytes(bits []byte) {
+func ClearBytes(bits []byte) {
 	for i := range bits {
 		if i >= 1 {
 			bits[i] = byte(i % 254)
