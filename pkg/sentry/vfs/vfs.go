@@ -63,7 +63,7 @@ import (
 
 // How long to wait for a mount promise before proceeding with the VFS
 // operation. This should be configurable by the user eventually.
-const mountPromiseTimeout = 10 * time.Second
+const mountPromiseTimeout = 30 * time.Second
 
 // A VirtualFilesystem (VFS for short) combines Filesystems in trees of Mounts.
 //
@@ -477,7 +477,7 @@ func (vfs *VirtualFilesystem) OpenAt(ctx context.Context, creds *auth.Credential
 			rp.Release(ctx)
 
 			if opts.FileExec {
-				if fd.Mount().Flags.NoExec {
+				if fd.Mount().Options().Flags.NoExec {
 					fd.DecRef(ctx)
 					return nil, linuxerr.EACCES
 				}

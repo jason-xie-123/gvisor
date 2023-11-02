@@ -30,7 +30,7 @@ import (
 const nvdEnvVar = "NVIDIA_VISIBLE_DEVICES"
 
 // annotationNVProxy enables nvproxy.
-const annotationNVProxy = "dev.gvisor.spec.nvproxy"
+const annotationNVProxy = "dev.gvisor.internal.nvproxy"
 
 // NVProxyEnabled checks both the nvproxy annotation and conf.NVProxy to see if nvproxy is enabled.
 func NVProxyEnabled(spec *specs.Spec, conf *config.Config) bool {
@@ -38,10 +38,14 @@ func NVProxyEnabled(spec *specs.Spec, conf *config.Config) bool {
 		return true
 	}
 	val, ok := spec.Annotations[annotationNVProxy]
-	if ok && val != "true" {
-		log.Warningf("nvproxy annotation is set to invalid value %q. Ignoring.", val)
+	if ok {
+		ret, err := strconv.ParseBool(val)
+		if val != "" && err != nil {
+			log.Warningf("tpuproxy annotation set to invalid value %q. Skipping.", val)
+		}
+		return ret
 	}
-	return ok && val == "true"
+	return false
 }
 
 // GPUFunctionalityRequested returns true if the user intends for the sandbox

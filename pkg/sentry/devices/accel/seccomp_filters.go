@@ -23,7 +23,6 @@ import (
 
 // Filters returns seccomp-bpf filters for this package.
 func Filters() seccomp.SyscallRules {
-	nonNegativeFD := seccomp.NonNegativeFDCheck()
 	return seccomp.MakeSyscallRules(map[uintptr]seccomp.SyscallRule{
 		unix.SYS_OPENAT: seccomp.PerArg{
 			// All paths that we openat() are absolute, so we pass a dirfd
@@ -38,56 +37,28 @@ func Filters() seccomp.SyscallRules {
 		unix.SYS_GETDENTS64: seccomp.MatchAll{},
 		unix.SYS_IOCTL: seccomp.Or{
 			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_RESET),
 			},
 			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_SET_EVENTFD),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_CLEAR_EVENTFD),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_NUMBER_PAGE_TABLES),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_PAGE_TABLE_SIZE),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_SIMPLE_PAGE_TABLE_SIZE),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_PARTITION_PAGE_TABLE),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_MAP_BUFFER),
 			},
 			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_UNMAP_BUFFER),
 			},
 			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_CLEAR_INTERRUPT_COUNTS),
 			},
 			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_REGISTER_INTERRUPT),
 			},
 			seccomp.PerArg{
-				nonNegativeFD,
+				seccomp.NonNegativeFD{},
 				seccomp.EqualTo(gasket.GASKET_IOCTL_UNREGISTER_INTERRUPT),
-			},
-			seccomp.PerArg{
-				nonNegativeFD,
-				seccomp.EqualTo(gasket.GASKET_IOCTL_MAP_DMA_BUF),
 			},
 		},
 		unix.SYS_EVENTFD2: seccomp.Or{

@@ -32,14 +32,11 @@ const (
 
 	// defaultLabel is the label for the default action.
 	defaultLabel = label("default_action")
-)
 
-// NonNegativeFDCheck ensures an FD argument is a non-negative int.
-func NonNegativeFDCheck() LessThanOrEqual {
-	// Negative int32 has the MSB (31st bit) set. So the raw uint FD value must
-	// be less than or equal to 0x7fffffff.
-	return LessThanOrEqual(0x7fffffff)
-}
+	// vsyscallPageIPMask is the bit we expect to see in the instruction
+	// pointer of a vsyscall call.
+	vsyscallPageIPMask = 1 << 31
+)
 
 // Install generates BPF code based on the set of syscalls provided. It only
 // allows syscalls that conform to the specification. Syscalls that violate the
@@ -270,6 +267,26 @@ func (l *labelSet) Push(labelSuffix string, newRuleMatch, newRuleMismatch label)
 	}
 }
 
+// matchedValue keeps track of BPF instructions needed to load a 64-bit value
+// being matched against. Since BPF can only do operations on 32-bit
+// instructions, value-matching code needs to selectively load one or the
+// other half of the 64-bit value.
+type matchedValue struct {
+	program        *syscallProgram
+	dataOffsetHigh uint32
+	dataOffsetLow  uint32
+}
+
+// LoadHigh32Bits loads the high 32-bit of the 64-bit value into register A.
+func (m matchedValue) LoadHigh32Bits() {
+	m.program.Stmt(bpf.Ld|bpf.Abs|bpf.W, m.dataOffsetHigh)
+}
+
+// LoadLow32Bits loads the low 32-bit of the 64-bit value into register A.
+func (m matchedValue) LoadLow32Bits() {
+	m.program.Stmt(bpf.Ld|bpf.Abs|bpf.W, m.dataOffsetLow)
+}
+
 // BuildStats contains information about seccomp program generation.
 type BuildStats struct {
 	// SizeBeforeOptimizations and SizeAfterOptimizations correspond to the
@@ -441,7 +458,7 @@ func buildBSTProgram(n *node, rules []RuleSet, program *syscallProgram) error {
 		// the vsyscall page will be mapped.
 		if rs.Vsyscall {
 			program.Stmt(bpf.Ld|bpf.Abs|bpf.W, seccompDataOffsetIPHigh)
-			program.IfNot(bpf.Jmp|bpf.Jset|bpf.K, 0x80000000, ruleSetLabelSet.Mismatched())
+			program.IfNot(bpf.Jmp|bpf.Jset|bpf.K, vsyscallPageIPMask, ruleSetLabelSet.Mismatched())
 		}
 
 		// Add an argument check for these particular
@@ -449,7 +466,7 @@ func buildBSTProgram(n *node, rules []RuleSet, program *syscallProgram) error {
 		// check the next rule set. We need to ensure
 		// that at the very end, we insert a direct
 		// jump label for the unmatched case.
-		rule.Render(program, ruleSetLabelSet)
+		optimizeSyscallRule(rule).Render(program, ruleSetLabelSet)
 		frag.MustHaveJumpedTo(ruleSetLabelSet.Matched(), ruleSetLabelSet.Mismatched())
 		program.Label(ruleSetLabelSet.Matched())
 		program.Ret(rs.Action)
@@ -490,4 +507,15 @@ func (n *node) traverse(fn traverseFunc, rules []RuleSet, program *syscallProgra
 		return err
 	}
 	return n.right.traverse(fn, rules, program)
+}
+
+// DataAsBPFInput converts a linux.SeccompData to a bpf.Input.
+// It uses `buf` as scratch buffer; this buffer must be wide enough
+// to accommodate a mashaled version of `d`.
+func DataAsBPFInput(d *linux.SeccompData, buf []byte) bpf.Input {
+	if len(buf) < d.SizeBytes() {
+		panic(fmt.Sprintf("buffer must be at least %d bytes long", d.SizeBytes()))
+	}
+	d.MarshalUnsafe(buf)
+	return buf[:d.SizeBytes()]
 }

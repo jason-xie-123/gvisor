@@ -188,6 +188,7 @@ func Init() {
 					nvgpu.UVM_REGISTER_GPU:                   uvmIoctlHasRMCtrlFD[nvgpu.UVM_REGISTER_GPU_PARAMS],
 					nvgpu.UVM_UNREGISTER_GPU:                 uvmIoctlSimple[nvgpu.UVM_UNREGISTER_GPU_PARAMS],
 					nvgpu.UVM_PAGEABLE_MEM_ACCESS:            uvmIoctlSimple[nvgpu.UVM_PAGEABLE_MEM_ACCESS_PARAMS],
+					nvgpu.UVM_DISABLE_READ_DUPLICATION:       uvmIoctlSimple[nvgpu.UVM_DISABLE_READ_DUPLICATION_PARAMS],
 					nvgpu.UVM_MAP_DYNAMIC_PARALLELISM_REGION: uvmIoctlSimple[nvgpu.UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS],
 					nvgpu.UVM_ALLOC_SEMAPHORE_POOL:           uvmIoctlSimple[nvgpu.UVM_ALLOC_SEMAPHORE_POOL_PARAMS],
 					nvgpu.UVM_VALIDATE_VA_RANGE:              uvmIoctlSimple[nvgpu.UVM_VALIDATE_VA_RANGE_PARAMS],
@@ -316,6 +317,7 @@ func Init() {
 			abi.useRmAllocParamsV535 = true
 			abi.controlCmd[nvgpu.NV_CONF_COMPUTE_CTRL_CMD_SYSTEM_GET_CAPABILITIES] = rmControlSimple
 			abi.allocationClass[nvgpu.NV_CONFIDENTIAL_COMPUTE] = rmAllocSimple[nvgpu.NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS]
+			abi.allocationClass[nvgpu.NV_MEMORY_FABRIC] = rmAllocSimple[nvgpu.NV00F8_ALLOCATION_PARAMETERS_V535]
 			abi.uvmIoctl[nvgpu.UVM_MM_INITIALIZE] = uvmMMInitialize
 			return abi
 		}
