@@ -59,11 +59,6 @@ var (
 	debugRealSizeMap   map[int]int = make(map[int]int)
 )
 
-type realSizeNode struct {
-	RealSize int `json:"realSize"`
-	Counter  int `json:"counter"`
-}
-
 func init() {
 	for i := 0; i < numPools; i++ {
 		chunkSize := poolSizes[i]

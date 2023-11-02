@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync/atomic"
 	"time"
+
+	"gvisor.dev/gvisor/pkg/sync"
 )
 
 var (
@@ -16,44 +18,55 @@ var (
 	debugViewSupport  bool = true
 )
 
+type realSizeNode struct {
+	RealSize int `json:"realSize"`
+	Counter  int `json:"counter"`
+}
+
+var realSizeNodePool = sync.Pool{
+	New: func() any {
+		return &realSizeNode{}
+	},
+}
+
 func InternalStartDebugChunk() {
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
 		for range ticker.C {
 			debugMutex.Lock()
-			fmt.Printf("bufferv2 debugUsingMap: %+v\n", debugUsingMap)
-			fmt.Printf("bufferv2 debugUsingMaxMap: %+v\n", debugUsingMaxMap)
-			fmt.Printf("bufferv2 debugAllocMap: %+v\n", debugAllocMap)
 
 			realSizeMapList := []*realSizeNode{}
 			for key, value := range debugRealSizeMap {
 				if value != 0 {
-					realSizeMapList = append(realSizeMapList, &realSizeNode{
-						key, value,
-					})
+					var node *realSizeNode = realSizeNodePool.Get().(*realSizeNode)
+					node.RealSize = key
+					node.Counter = value
+
+					realSizeMapList = append(realSizeMapList, node)
 				} else {
-					fmt.Println("find zero real size trunk!!!!!!!!!!!!!")
-					realSizeMapList = append(realSizeMapList, &realSizeNode{
-						key, value,
-					})
+					var node *realSizeNode = realSizeNodePool.Get().(*realSizeNode)
+					node.RealSize = key
+					node.Counter = value
+
+					realSizeMapList = append(realSizeMapList, node)
 				}
 			}
 			sort.Slice(realSizeMapList, func(i, j int) bool {
 				return realSizeMapList[i].Counter*realSizeMapList[i].RealSize > realSizeMapList[j].Counter*realSizeMapList[j].RealSize
 			})
 
-			if len(realSizeMapList) > 20 {
-				realSizeMapList = realSizeMapList[:20]
-			}
-
-			data, _ := json.Marshal(realSizeMapList)
-			fmt.Printf("bufferv2 debugRealSizeMap: %s\n", data)
+			data, _ := json.Marshal(realSizeMapList[:20])
 
 			currentUsingBytes := atomic.LoadInt64(&usingBytes)
-			fmt.Printf("bufferv2 currentUsingBytes: %d\n", currentUsingBytes)
 
 			currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
-			fmt.Printf("bufferv2 currentMaxUsingFuzzyBytes: %d\n", currentMaxUsingFuzzyBytes)
+
+			fmt.Printf("bufferv2 debugUsingMap: %+v\nbufferv2 debugUsingMaxMap: %+v\nbufferv2 debugAllocMap: %+v\nbufferv2 debugRealSizeMap: %s\nbufferv2 currentUsingBytes: %d\nbufferv2 currentMaxUsingFuzzyBytes: %d\n",
+				debugUsingMap, debugUsingMaxMap, debugAllocMap, data, currentUsingBytes, currentMaxUsingFuzzyBytes)
+
+			for _, node := range realSizeMapList {
+				realSizeNodePool.Put(node)
+			}
 
 			debugMutex.Unlock()
 		}
