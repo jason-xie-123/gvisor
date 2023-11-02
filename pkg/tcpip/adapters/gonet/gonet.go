@@ -355,6 +355,18 @@ func (c *TCPConn) Read(b []byte) (int, error) {
 	return n, err
 }
 
+var bytesReaderPool = sync.Pool{
+	New: func() interface{} {
+		return &bytes.Reader{}
+	},
+}
+
+var waiterEntryPool = sync.Pool{
+	New: func() interface{} {
+		return waiter.NewChannelEntryEmpty()
+	},
+}
+
 // Write implements net.Conn.Write.
 func (c *TCPConn) Write(b []byte) (int, error) {
 	deadline := c.writeCancel()
@@ -378,37 +390,46 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 	// There is no guarantee that all of the condition #1s will occur before
 	// all of the condition #2s or visa-versa.
 	var (
-		r      bytes.Reader
 		nbytes int
-		entry  waiter.Entry
-		ch     <-chan struct{}
 	)
+	var r *bytes.Reader = bytesReaderPool.Get().(*bytes.Reader)
+
 	for nbytes != len(b) {
 		r.Reset(b[nbytes:])
-		n, err := c.ep.Write(&r, tcpip.WriteOptions{})
+		n, err := c.ep.Write(r, tcpip.WriteOptions{})
 		nbytes += int(n)
 		switch err.(type) {
 		case nil:
 		case *tcpip.ErrWouldBlock:
-			if ch == nil {
-				entry, ch = waiter.NewChannelEntry(waiter.WritableEvents)
-				c.wq.EventRegister(&entry)
-				defer c.wq.EventUnregister(&entry)
-			} else {
-				// Don't wait immediately after registration in case more data
-				// became available between when we last checked and when we setup
-				// the notification.
-				select {
-				case <-deadline:
-					return nbytes, c.newOpError("write", &timeoutError{})
-				case <-ch:
-					continue
-				}
+			var entry *waiter.Entry = waiterEntryPool.Get().(*waiter.Entry)
+			var ch waiter.ChannelNotifier = entry.GetEventListener().(waiter.ChannelNotifier)
+			entry.SetEventMask(waiter.WritableEvents)
+
+			c.wq.EventRegister(entry)
+
+			// Don't wait immediately after registration in case more data
+			// became available between when we last checked and when we setup
+			// the notification.
+			select {
+			case <-deadline:
+				c.wq.EventUnregister(entry)
+				waiterEntryPool.Put(entry)
+
+				bytesReaderPool.Put(r)
+
+				return nbytes, c.newOpError("write", &timeoutError{})
+			case <-ch:
+				c.wq.EventUnregister(entry)
+				waiterEntryPool.Put(entry)
+
+				continue
 			}
 		default:
+			bytesReaderPool.Put(r)
 			return nbytes, c.newOpError("write", errors.New(err.String()))
 		}
 	}
+	bytesReaderPool.Put(r)
 	return nbytes, nil
 }
 

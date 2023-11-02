@@ -154,6 +154,18 @@ func (e *Entry) Init(eventListener EventListener, mask EventMask) {
 	e.mask = mask
 }
 
+func (e *Entry) SetEventListener(eventListener EventListener) {
+	e.eventListener = eventListener
+}
+
+func (e *Entry) GetEventListener() EventListener {
+	return e.eventListener
+}
+
+func (e *Entry) SetEventMask(mask EventMask) {
+	e.mask = mask
+}
+
 // Mask returns the entry mask.
 func (e *Entry) Mask() EventMask {
 	return e.mask
@@ -186,6 +198,14 @@ func NewChannelEntry(mask EventMask) (e Entry, ch chan struct{}) {
 	ch = make(chan struct{}, 1)
 	e.Init(ChannelNotifier(ch), mask)
 	return e, ch
+}
+
+func NewChannelEntryEmpty() *Entry {
+	e := Entry{}
+	ch := make(chan struct{}, 1)
+	e.SetEventListener(ChannelNotifier(ch))
+
+	return &e
 }
 
 type functionNotifier func(EventMask)

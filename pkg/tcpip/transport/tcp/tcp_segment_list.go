@@ -45,6 +45,10 @@ func InternalGetCurrentSegmentListSize() int64 {
 	return atomic.LoadInt64(&segmentListCount)
 }
 
+func InternalGetMaxSegmentListSize() int64 {
+	return atomic.LoadInt64(&segmentListMaxCount)
+}
+
 // Reset resets list l to the empty state.
 func (l *segmentList) Reset() {
 	l.head = nil

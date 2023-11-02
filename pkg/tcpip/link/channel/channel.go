@@ -76,6 +76,10 @@ func (q *queue) ReadContext(ctx context.Context) stack.PacketBufferPtr {
 	}
 }
 
+func (q *queue) GetReadChannel() chan stack.PacketBufferPtr {
+	return q.c
+}
+
 func (q *queue) Write(pkt stack.PacketBufferPtr) tcpip.Error {
 	// q holds the PacketBuffer.
 	q.mu.RLock()
@@ -175,6 +179,10 @@ func (e *Endpoint) Read() stack.PacketBufferPtr {
 // It can be cancelled by ctx, and in this case, it returns nil.
 func (e *Endpoint) ReadContext(ctx context.Context) stack.PacketBufferPtr {
 	return e.q.ReadContext(ctx)
+}
+
+func (e *Endpoint) GetReadChannel() chan stack.PacketBufferPtr {
+	return e.q.GetReadChannel()
 }
 
 // Drain removes all outbound packets from the channel and counts them.
