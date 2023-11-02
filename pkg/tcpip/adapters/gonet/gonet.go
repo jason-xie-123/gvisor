@@ -433,6 +433,63 @@ func (c *TCPConn) Write(b []byte) (int, error) {
 	return nbytes, nil
 }
 
+// Write implements net.Conn.Write.
+func (c *TCPConn) WriteOld(b []byte) (int, error) {
+	deadline := c.writeCancel()
+
+	// Check if deadlineTimer has already expired.
+	select {
+	case <-deadline:
+		return 0, c.newOpError("write", &timeoutError{})
+	default:
+	}
+
+	// We must handle two soft failure conditions simultaneously:
+	//  1. Write may write nothing and return *tcpip.ErrWouldBlock.
+	//     If this happens, we need to register for notifications if we have
+	//     not already and wait to try again.
+	//  2. Write may write fewer than the full number of bytes and return
+	//     without error. In this case we need to try writing the remaining
+	//     bytes again. I do not need to register for notifications.
+	//
+	// What is more, these two soft failure conditions can be interspersed.
+	// There is no guarantee that all of the condition #1s will occur before
+	// all of the condition #2s or visa-versa.
+	var (
+		r      bytes.Reader
+		nbytes int
+		entry  waiter.Entry
+		ch     <-chan struct{}
+	)
+	for nbytes != len(b) {
+		r.Reset(b[nbytes:])
+		n, err := c.ep.Write(&r, tcpip.WriteOptions{})
+		nbytes += int(n)
+		switch err.(type) {
+		case nil:
+		case *tcpip.ErrWouldBlock:
+			if ch == nil {
+				entry, ch = waiter.NewChannelEntry(waiter.WritableEvents)
+				c.wq.EventRegister(&entry)
+				defer c.wq.EventUnregister(&entry)
+			} else {
+				// Don't wait immediately after registration in case more data
+				// became available between when we last checked and when we setup
+				// the notification.
+				select {
+				case <-deadline:
+					return nbytes, c.newOpError("write", &timeoutError{})
+				case <-ch:
+					continue
+				}
+			}
+		default:
+			return nbytes, c.newOpError("write", errors.New(err.String()))
+		}
+	}
+	return nbytes, nil
+}
+
 // Close implements net.Conn.Close.
 func (c *TCPConn) Close() error {
 	c.ep.Close()
