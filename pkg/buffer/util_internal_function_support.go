@@ -55,14 +55,19 @@ func InternalStartDebugChunk() {
 				return realSizeMapList[i].Counter*realSizeMapList[i].RealSize > realSizeMapList[j].Counter*realSizeMapList[j].RealSize
 			})
 
-			data, _ := json.Marshal(realSizeMapList[:20])
+			var realSizeMapListData []byte
+			if len(realSizeMapList) > 20 {
+				realSizeMapListData, _ = json.Marshal(realSizeMapList[:20])
+			} else {
+				realSizeMapListData, _ = json.Marshal(realSizeMapList)
+			}
 
 			currentUsingBytes := atomic.LoadInt64(&usingBytes)
 
 			currentMaxUsingFuzzyBytes := atomic.LoadInt64(&maxUsingFuzzyBytes)
 
 			fmt.Printf("bufferv2 debugUsingMap: %+v\nbufferv2 debugUsingMaxMap: %+v\nbufferv2 debugAllocMap: %+v\nbufferv2 debugRealSizeMap: %s\nbufferv2 currentUsingBytes: %d\nbufferv2 currentMaxUsingFuzzyBytes: %d\n",
-				debugUsingMap, debugUsingMaxMap, debugAllocMap, data, currentUsingBytes, currentMaxUsingFuzzyBytes)
+				debugUsingMap, debugUsingMaxMap, debugAllocMap, realSizeMapListData, currentUsingBytes, currentMaxUsingFuzzyBytes)
 
 			for _, node := range realSizeMapList {
 				realSizeNodePool.Put(node)
